@@ -1,7 +1,20 @@
 # BACKLOG CHI TIẾT — QuickWin (fork Semaphore UI)
 
-> Sinh từ `PLAN-quickwin-semaphore-fork.md` (đã review 2026-07-05).
-> Guideline làm việc: `GUIDELINE-AI-ENGINEER.md`.
+> ## 📌 TRẠNG THÁI (cập nhật 2026-07-05)
+> | Task | Trạng thái |
+> |---|---|
+> | P0-01 | 🟡 4/5 chốt (ADR-0004) — còn tên sản phẩm |
+> | P0-02, 03, 04, 05 | ✅ xong — repo + submodule v2.18.16 + Go 1.24.6 trong `./Go/` + patch system test PASS; binary `quickwin-dev-sem2.18.16` build OK trên Windows (Linux verify khi CI chạy) |
+> | P0-06 | 🟡 script sync-upstream có, chưa diễn tập với tag thật |
+> | P0-07, 09, 10, 12 | ✅ xong — license/NOTICE + docs L0/L1 + ADR 0001–0004 + guideline + OWNERS.yaml + governance/issue forms |
+> | P0-08, 13 | 🟡 file CI + policy đã viết — cần push GitHub để chạy thật + bật push protection/mirror |
+> | P0-11 | ⬜ chưa làm (testing-strategy + khung e2e) |
+> | Còn lại | ⬜ chưa bắt đầu |
+>
+> **Chờ user:** tạo repo GitHub (org/tên) + chốt tên sản phẩm chính thức.
+
+> Sinh từ `PLAN.md` (đã review 2026-07-05).
+> Guideline làm việc: `docs/L3-development/AI-ENGINEER-GUIDELINE.md`.
 >
 > **Quy ước:**
 > - ID: `P<phase>-<số>` — ví dụ `P0-03`.

@@ -22,7 +22,16 @@ if [ "${FULL_UI:-0}" = "1" ]; then
   cp "$UP/bin/semaphore"* "$OUT/" 2>/dev/null || true
 else
   echo "==> go build backend (không UI — dùng FULL_UI=1 cho bản đầy đủ)"
-  (cd "$UP" && "$GO" build -o "$OUT/$BIN" ./cli)
+  # api/router.go dùng go:embed public/* — backend-only cần placeholder assets
+  # (chỉ trong working tree upstream; reset-upstream.sh sẽ dọn)
+  if [ ! -f "$UP/api/public/index.html" ]; then
+    mkdir -p "$UP/api/public"
+    echo '<!-- placeholder: backend-only build, no UI assets (FULL_UI=1 for real UI) -->' > "$UP/api/public/index.html"
+  fi
+  IMPORT="$(head -1 "$UP/go.mod" | awk '{print $2}')"
+  UPTAG="$(git -C "$UP" describe --tags --always)"
+  QWVER="quickwin-dev-sem${UPTAG#v}"
+  (cd "$UP" && "$GO" build -ldflags "-X $IMPORT/util.Ver=$QWVER -X $IMPORT/util.Commit=$(git -C "$UP" rev-parse --short HEAD)" -o "$OUT/$BIN" ./cli)
 fi
 
 echo "OK: $OUT/$BIN"
