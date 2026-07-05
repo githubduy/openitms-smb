@@ -1,0 +1,24 @@
+name: Bug report
+description: Báo lỗi (có repro rõ ràng sẽ được AI agent tự fix)
+labels: ["bug", "triage"]
+body:
+  - type: input
+    id: version
+    attributes: { label: "Phiên bản (quickwin-vX.Y.Z-semA.B.C)" }
+    validations: { required: true }
+  - type: dropdown
+    id: area
+    attributes:
+      label: Khu vực
+      options: [ "area:core-patch", "area:plugin", "area:registry", "area:installer", "area:template", "không rõ" ]
+    validations: { required: true }
+  - type: textarea
+    id: repro
+    attributes:
+      label: Các bước tái hiện
+      description: Từng bước, từ trạng thái sạch. Kèm log nếu có.
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes: { label: "Kỳ vọng vs thực tế" }
+    validations: { required: true }

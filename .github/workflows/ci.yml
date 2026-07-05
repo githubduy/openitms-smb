@@ -1,0 +1,63 @@
+# CI skeleton (P0-08) — build + patch-chain + hygiene + license + secret scan.
+# SonarQube self-host gắn ở Phase 4 (P4-03).
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+      - name: Toolchain (pin ./Go/, không dùng Go hệ thống)
+        run: scripts/setup-toolchain.sh
+      - name: Upstream sạch tại baseline
+        run: git -C upstream diff --quiet && git -C upstream diff --cached --quiet
+      - name: Apply patch chain
+        run: scripts/apply-patches.sh
+      - name: Build
+        run: scripts/build-all.sh
+      - name: Tests
+        run: scripts/run-tests.sh
+
+  patch-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Bộ-4: mỗi patch trong series phải có .patch + spec L2 + entry CHANGELOG"
+        run: |
+          set -e
+          fail=0
+          grep -vE '^\s*(#|$)' core-patches/series | while read -r p; do
+            base="${p%.patch}"
+            [ -f "core-patches/$p" ] || { echo "MISSING patch file: $p"; fail=1; }
+            [ -f "docs/L2-specs/core-patches/$base.md" ] || { echo "MISSING spec: $base.md"; fail=1; }
+            grep -q "$p" core-patches/CHANGELOG.md || { echo "MISSING changelog entry: $p"; fail=1; }
+          done
+          exit $fail
+
+  license:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go-version.txt }
+      - name: go-licenses check (fail nếu GPL/AGPL link trực tiếp)
+        run: |
+          go install github.com/google/go-licenses@latest
+          cd upstream && go-licenses check ./... --disallowed_types=forbidden,restricted || exit 1
+      - name: Verify license files tồn tại
+        run: test -f LICENSE && test -f LICENSE-SEMAPHORE && test -f NOTICE.md
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

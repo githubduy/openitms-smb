@@ -1,0 +1,23 @@
+name: Plugin proposal
+description: Đề xuất plugin mới cho registry
+labels: ["area:plugin", "triage"]
+body:
+  - type: input
+    id: name
+    attributes: { label: "Tên plugin (kebab-case)" }
+    validations: { required: true }
+  - type: dropdown
+    id: lang
+    attributes:
+      label: Ngôn ngữ
+      options: [ "Go (quickwin-plugin-sdk-go)", "Python (quickwin-plugin-sdk-py)" ]
+    validations: { required: true }
+  - type: textarea
+    id: purpose
+    attributes:
+      label: Plugin làm gì? API động nào? Permissions cần gì?
+    validations: { required: true }
+  - type: input
+    id: license
+    attributes: { label: "License (bắt buộc — registry từ chối nếu thiếu)" }
+    validations: { required: true }

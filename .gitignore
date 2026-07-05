@@ -1,0 +1,32 @@
+# === SECRETS — never commit (publishing policy: docs/L3-development/publishing-policy.md) ===
+*.pfx
+*.pem
+*.key
+*.p12
+servers.json
+.env
+.env.*
+secrets/
+
+# === Build outputs ===
+dist/
+/Go/
+*.exe
+*.test
+*.out
+
+# === Toolchain / deps ===
+node_modules/
+vendor/
+.task/
+
+# === Editor / OS ===
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+.DS_Store
+
+# === Scratch ===
+tmp/
+*.log

@@ -1,0 +1,25 @@
+name: Feature request
+description: Đề xuất tính năng (đủ thông tin có thể được AI agent tự phát triển)
+labels: ["triage"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Khu vực
+      options: [ "area:plugin", "area:core-patch", "area:registry", "area:installer", "area:template", "không rõ" ]
+    validations: { required: true }
+  - type: textarea
+    id: problem
+    attributes:
+      label: Vấn đề cần giải quyết
+      description: Mô tả bài toán, KHÔNG mô tả giải pháp. Ai gặp? Bao lâu một lần?
+    validations: { required: true }
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Giải pháp đề xuất (nếu có)
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Thế nào là xong? (acceptance criteria đo được)
+    validations: { required: true }

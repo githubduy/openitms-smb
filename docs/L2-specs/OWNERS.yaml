@@ -1,0 +1,24 @@
+# Mapping spec L2 ↔ code path — CI job docs-mapping dùng file này:
+# PR đổi file khớp `paths` mà KHÔNG đổi file `spec` tương ứng → CI FAIL.
+# (spec chưa tồn tại + code chưa tồn tại = entry "planned", CI bỏ qua)
+version: 1
+rules:
+  - spec: docs/L2-specs/plugin-manager.md
+    paths: ["plugin-manager/**"]
+    status: planned          # Phase 1
+  - spec: docs/L2-specs/plugin-manifest.md
+    paths: ["plugin-manager/schema/**"]
+    status: planned
+  - spec: docs/L2-specs/proto-contract.md
+    paths: ["proto/**"]
+    status: planned
+  - spec: docs/L2-specs/registry-format.md
+    paths: ["registry/**"]
+    status: planned          # Phase 3
+  - spec: docs/L2-specs/installer-linux.md
+    paths: ["installer/**"]
+    status: planned          # Phase 2
+  - spec: docs/L2-specs/core-patches/   # thư mục: mỗi patch NNNN-*.patch phải có NNNN-*.md
+    paths: ["core-patches/*.patch"]
+    match: per-file          # bộ-4 enforce
+    status: active
