@@ -129,26 +129,23 @@ func matchRoute(routes []RouteDef, method, path string) *RouteDef {
 	segs := strings.Split(strings.Trim(path, "/"), "/")
 	for i := range routes {
 		r := &routes[i]
-		if !strings.EqualFold(r.Method, method) {
-			continue
-		}
-		pat := strings.Split(strings.Trim(r.Path, "/"), "/")
-		if len(pat) != len(segs) {
-			continue
-		}
-		match := true
-		for j := range pat {
-			if strings.HasPrefix(pat[j], "{") && strings.HasSuffix(pat[j], "}") {
-				continue // param segment — khớp mọi giá trị
-			}
-			if pat[j] != segs[j] {
-				match = false
-				break
-			}
-		}
-		if match {
+		if strings.EqualFold(r.Method, method) && segmentsMatch(strings.Split(strings.Trim(r.Path, "/"), "/"), segs) {
 			return r
 		}
 	}
 	return nil
+}
+
+// segmentsMatch: pattern khớp path theo từng segment; "{param}" khớp mọi giá trị.
+func segmentsMatch(pat, segs []string) bool {
+	if len(pat) != len(segs) {
+		return false
+	}
+	for j := range pat {
+		isParam := strings.HasPrefix(pat[j], "{") && strings.HasSuffix(pat[j], "}")
+		if !isParam && pat[j] != segs[j] {
+			return false
+		}
+	}
+	return true
 }

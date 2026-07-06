@@ -27,11 +27,13 @@ type winrsResult struct {
 // runWinRSCert chạy 1 lệnh qua WinRM HTTPS dùng client certificate auth.
 // Windows đích cần: WinRM listener HTTPS + bật Certificate auth + map cert→user (JEA/local).
 func runWinRSCert(ctx context.Context, p winrsParams) (*winrsResult, error) {
+	// insecure=true: chấp nhận server cert self-signed (lab). Verify CA là tuỳ chọn v2
+	// (spec plugins-winrs-cert.md) — khi có, truyền CA vào tham số thứ 5 + insecure=false.
 	endpoint := winrm.NewEndpoint(
 		p.Host, p.Port,
 		true,  // https
-		true,  // insecure: bỏ verify server cert (lab/self-signed — TODO option verify CA, spec)
-		nil,   // CA cert
+		true,  // insecure (xem chú thích trên)
+		nil,   // CA cert (v2)
 		p.CertPEM,
 		p.KeyPEM,
 		0,

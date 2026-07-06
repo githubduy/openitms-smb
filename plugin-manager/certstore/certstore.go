@@ -104,6 +104,8 @@ func (s *Store) List() []*Entry {
 	return out
 }
 
+var certExts = map[string]bool{".pem": true, ".pfx": true, ".p12": true, ".crt": true, ".key": true}
+
 func (s *Store) scan() {
 	files, err := os.ReadDir(s.dir)
 	if err != nil {
@@ -115,57 +117,61 @@ func (s *Store) scan() {
 	seen := map[string]bool{}
 	var loaded []*Entry
 	for _, f := range files {
-		if f.IsDir() {
+		if f.IsDir() || !certExts[strings.ToLower(filepath.Ext(f.Name()))] {
 			continue
 		}
-		name := f.Name()
-		ext := strings.ToLower(filepath.Ext(name))
-		if ext != ".pem" && ext != ".pfx" && ext != ".p12" && ext != ".crt" && ext != ".key" {
-			continue
+		seen[f.Name()] = true
+		if e := s.loadIfChanged(f.Name()); e != nil {
+			loaded = append(loaded, e)
 		}
-		seen[name] = true
-		path := filepath.Join(s.dir, name)
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			s.log.Warn("certstore: đọc file fail", "file", name, "err", err)
-			continue
-		}
-		sum := sha256.Sum256(raw)
-		hexSum := hex.EncodeToString(sum[:])
-
-		s.mu.RLock()
-		old := s.entries[name]
-		s.mu.RUnlock()
-		if old != nil && old.SHA256 == hexSum {
-			continue // không đổi
-		}
-
-		e, err := parseEntry(name, path, raw, hexSum)
-		if err != nil {
-			// file rác không làm crash — bỏ qua + warning (spec certs-directory)
-			s.log.Warn("certstore: file không hợp lệ, bỏ qua", "file", name, "err", err)
-			continue
-		}
-		s.mu.Lock()
-		s.entries[name] = e
-		s.mu.Unlock()
-		s.log.Info("certstore: nạp certificate", "file", name, "kind", e.Kind,
-			"certs", len(e.Certificates), "hasKey", e.HasKey)
-		loaded = append(loaded, e)
 	}
-	// file bị xóa → gỡ khỏi store
+	s.removeMissing(seen)
+	for _, e := range loaded {
+		for _, f := range s.onLoad {
+			f(e)
+		}
+	}
+}
+
+// loadIfChanged đọc + parse 1 file cert; trả *Entry nếu MỚI/ĐỔI (đã nạp vào store),
+// nil nếu không đổi / lỗi (đã log). File rác không làm crash — chỉ warning.
+func (s *Store) loadIfChanged(name string) *Entry {
+	path := filepath.Join(s.dir, name)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		s.log.Warn("certstore: đọc file fail", "file", name, "err", err)
+		return nil
+	}
+	hexSum := hex.EncodeToString(func() []byte { h := sha256.Sum256(raw); return h[:] }())
+
+	s.mu.RLock()
+	old := s.entries[name]
+	s.mu.RUnlock()
+	if old != nil && old.SHA256 == hexSum {
+		return nil // không đổi
+	}
+
+	e, err := parseEntry(name, path, raw, hexSum)
+	if err != nil {
+		s.log.Warn("certstore: file không hợp lệ, bỏ qua", "file", name, "err", err)
+		return nil
+	}
 	s.mu.Lock()
+	s.entries[name] = e
+	s.mu.Unlock()
+	s.log.Info("certstore: nạp certificate", "file", name, "kind", e.Kind,
+		"certs", len(e.Certificates), "hasKey", e.HasKey)
+	return e
+}
+
+// removeMissing gỡ entry của file không còn trong thư mục.
+func (s *Store) removeMissing(seen map[string]bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for name := range s.entries {
 		if !seen[name] {
 			delete(s.entries, name)
 			s.log.Info("certstore: certificate bị gỡ", "file", name)
-		}
-	}
-	s.mu.Unlock()
-
-	for _, e := range loaded {
-		for _, f := range s.onLoad {
-			f(e)
 		}
 	}
 }

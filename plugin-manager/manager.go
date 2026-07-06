@@ -118,34 +118,10 @@ func (m *Manager) Scan() error {
 		}
 		dir := filepath.Join(m.opts.Dir, e.Name())
 		if _, err := os.Stat(filepath.Join(dir, "plugin.yaml")); err != nil {
-			continue
+			continue // không phải thư mục plugin
 		}
-		mf, err := LoadManifest(dir)
-		if err != nil {
-			m.log.Error("bỏ qua plugin: manifest lỗi", "dir", dir, "err", err)
-			continue
-		}
-		if mf.ProtocolVersion != sdk.ProtocolVersion {
-			m.log.Error("bỏ qua plugin: protocol_version không khớp", "plugin", mf.Name,
-				"plugin_protocol", mf.ProtocolVersion, "core_protocol", sdk.ProtocolVersion)
-			continue
-		}
-		if m.opts.CoreVersion != "" && mf.MinCoreVersion != "" &&
-			semverLess(m.opts.CoreVersion, mf.MinCoreVersion) {
-			m.log.Error("bỏ qua plugin: cần core mới hơn", "plugin", mf.Name,
-				"min_core", mf.MinCoreVersion, "core", m.opts.CoreVersion)
-			continue
-		}
-		warns, err := verifyChecksums(mf)
-		if err != nil {
-			m.log.Error("bỏ qua plugin: checksum fail", "plugin", mf.Name, "err", err)
-			continue
-		}
-		for _, w := range warns {
-			m.log.Warn(w)
-		}
-		if _, dup := m.instances[mf.Name]; dup {
-			m.log.Error("bỏ qua plugin: trùng tên", "plugin", mf.Name, "dir", dir)
+		mf := m.evaluatePlugin(dir) // nil = bị bỏ qua (đã log lý do)
+		if mf == nil {
 			continue
 		}
 		m.mu.Lock()
@@ -154,6 +130,43 @@ func (m *Manager) Scan() error {
 		m.log.Info("phát hiện plugin", "plugin", mf.Name, "version", mf.Version)
 	}
 	return nil
+}
+
+// evaluatePlugin validate 1 thư mục plugin. Trả manifest nếu hợp lệ + được nhận;
+// nil (kèm log lý do) nếu bỏ qua — plugin hỏng KHÔNG chặn plugin khác.
+func (m *Manager) evaluatePlugin(dir string) *Manifest {
+	mf, err := LoadManifest(dir)
+	if err != nil {
+		m.log.Error("bỏ qua plugin: manifest lỗi", "dir", dir, "err", err)
+		return nil
+	}
+	if mf.ProtocolVersion != sdk.ProtocolVersion {
+		m.log.Error("bỏ qua plugin: protocol_version không khớp", "plugin", mf.Name,
+			"plugin_protocol", mf.ProtocolVersion, "core_protocol", sdk.ProtocolVersion)
+		return nil
+	}
+	if m.opts.CoreVersion != "" && mf.MinCoreVersion != "" &&
+		semverLess(m.opts.CoreVersion, mf.MinCoreVersion) {
+		m.log.Error("bỏ qua plugin: cần core mới hơn", "plugin", mf.Name,
+			"min_core", mf.MinCoreVersion, "core", m.opts.CoreVersion)
+		return nil
+	}
+	warns, err := verifyChecksums(mf)
+	if err != nil {
+		m.log.Error("bỏ qua plugin: checksum fail", "plugin", mf.Name, "err", err)
+		return nil
+	}
+	for _, w := range warns {
+		m.log.Warn(w)
+	}
+	m.mu.RLock()
+	_, dup := m.instances[mf.Name]
+	m.mu.RUnlock()
+	if dup {
+		m.log.Error("bỏ qua plugin: trùng tên", "plugin", mf.Name, "dir", dir)
+		return nil
+	}
+	return mf
 }
 
 // Start launch mọi plugin đã Scan + chạy health loop. Trả error tổng hợp nhưng
