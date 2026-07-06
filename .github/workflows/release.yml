@@ -61,10 +61,11 @@ jobs:
         env:
           REGISTRY_PRIVATE_KEY: ${{ secrets.REGISTRY_PRIVATE_KEY }}
         run: |
-          # spec.json liệt kê artifact (plugin/template) → registryctl build + ký
+          # build registryctl (module riêng) rồi build+ký registry public từ public-spec.json
+          (cd registry && "$GITHUB_WORKSPACE/Go/go/bin/go" build -o /tmp/registryctl ./cmd/registryctl)
           test -f registry/public-spec.json && \
-            Go/go/bin/go run ./registry/cmd/registryctl build public ./public-registry registry/public-spec.json || \
-            echo "public-spec.json chưa có — bỏ qua publish (dựng ở P3-03 hoàn thiện)"
+            /tmp/registryctl build public ./public-registry registry/public-spec.json || \
+            echo "public-spec.json chưa có — bỏ qua publish"
       - name: Deploy GitHub Pages
         if: hashFiles('public-registry/index.json') != ''
         uses: actions/upload-pages-artifact@v3

@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenITMS-SMB — Quản lý hạ tầng IT cho SMB</title>
+<style>
+  :root { --bg:#0f1720; --card:#17212b; --accent:#1565c0; --fg:#e7edf3; --muted:#93a1b0; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--fg); font:16px/1.6 system-ui,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width:920px; margin:0 auto; padding:48px 20px; }
+  header { text-align:center; margin-bottom:40px; }
+  .logo { width:72px; height:72px; }
+  h1 { font-size:2rem; margin:12px 0 6px; }
+  .tag { color:var(--muted); font-size:1.1rem; }
+  .badge { display:inline-block; background:#7a3b12; color:#ffd9b3; padding:3px 10px; border-radius:12px; font-size:.8rem; margin-top:12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:16px; margin:32px 0; }
+  .card { background:var(--card); border:1px solid #223; border-radius:12px; padding:20px; }
+  .card h3 { color:#6db1ff; font-size:1rem; margin-bottom:8px; }
+  .card p { color:var(--muted); font-size:.92rem; }
+  a.btn { display:inline-block; background:var(--accent); color:#fff; text-decoration:none; padding:10px 20px; border-radius:8px; margin:6px; }
+  a.btn.ghost { background:transparent; border:1px solid var(--accent); color:#6db1ff; }
+  footer { text-align:center; color:var(--muted); font-size:.85rem; margin-top:48px; border-top:1px solid #223; padding-top:20px; }
+  code { background:#0b1119; padding:2px 6px; border-radius:4px; color:#9fd; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <svg class="logo" viewBox="0 0 200 200"><rect x="10" y="10" width="180" height="180" rx="28" fill="#1565c0"/><path d="M55 130V70l45 34 45-34v60" fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><circle cx="100" cy="152" r="10" fill="#fff"/></svg>
+    <h1>OpenITMS-SMB</h1>
+    <p class="tag">Nền tảng mã nguồn mở quản lý hạ tầng IT cho doanh nghiệp SMB</p>
+    <span class="badge">Đang phát triển — chưa có bản phát hành chính thức</span>
+  </header>
+
+  <p style="text-align:center; color:var(--muted)">
+    Tự động hóa triển khai, chạy lệnh/script xuống <b>Windows 11</b> và <b>Linux</b> từ một Web UI.
+    Cài trong 10 phút, 1 lệnh, zero-config — không cần biết Docker hay Ansible.
+  </p>
+
+  <div class="grid">
+    <div class="card"><h3>Core sạch</h3><p>Fork Semaphore UI (MIT), sửa core tối thiểu qua patch script-hóa — sync bản vá bảo mật ≤ 48h.</p></div>
+    <div class="card"><h3>Plugin-first</h3><p>Mở rộng qua HashiCorp go-plugin (gRPC). Viết plugin bằng Go hoặc Python. Registry ký số.</p></div>
+    <div class="card"><h3>Zero-config</h3><p>Toàn binary native (core + MariaDB + PowerShell) — tuyệt đối không Docker. Ném cert vào là chạy.</p></div>
+    <div class="card"><h3>AI-driven dev</h3><p>Nạp yêu cầu qua GitHub Issues → AI tự đọc, tự phát triển → quality gate → người duyệt.</p></div>
+  </div>
+
+  <div style="text-align:center">
+    <a class="btn" href="https://github.com/githubduy/openitms-smb">GitHub</a>
+    <a class="btn ghost" href="https://github.com/githubduy/openitms-smb/blob/main/PLAN.md">Kế hoạch</a>
+    <a class="btn ghost" href="https://github.com/githubduy/openitms-smb/tree/main/docs">Tài liệu</a>
+  </div>
+
+  <footer>
+    Fork của <a href="https://github.com/semaphoreui/semaphore" style="color:#6db1ff">Semaphore UI</a> (MIT) —
+    không liên kết/không được chứng thực bởi Semaphore UI. © 2026 OpenITMS-SMB contributors, MIT.
+  </footer>
+</div>
+</body>
+</html>

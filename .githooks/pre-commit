@@ -7,6 +7,15 @@ ROOT="$(git rev-parse --show-toplevel)"
 
 "$ROOT/scripts/check-banned-words.sh" --staged
 
+# 3. Auto exec-bit cho .sh staged (Windows core.filemode=false hay nuốt +x → CI exit 126)
+git diff --cached --name-only --diff-filter=ACM | grep -E '\.sh$|^\.githooks/' | while read -r f; do
+  mode=$(git ls-files -s -- "$f" | awk '{print $1}')
+  if [ "$mode" = "100644" ]; then
+    git update-index --chmod=+x -- "$f"
+    echo "pre-commit: set +x cho $f"
+  fi
+done
+
 if git diff --cached --name-only | grep -q '^upstream/'; then
   # gitlink update (submodule bump khi sync) là hợp lệ; sửa FILE bên trong là không
   if git diff --cached --name-only | grep -qE '^upstream/.'; then

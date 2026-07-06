@@ -1,0 +1,42 @@
+[
+  {
+    "type": "template",
+    "name": "jea-winrs-setup",
+    "version": "0.1.0",
+    "license": "MIT",
+    "dir": "templates/jea-winrs-setup",
+    "description": "Windows 11 WinRS certificate-auth setup (enroll cert + WinRM HTTPS + JEA map)"
+  },
+  {
+    "type": "template",
+    "name": "docker-cluster-setup",
+    "version": "0.1.0",
+    "license": "MIT",
+    "dir": "templates/docker-cluster-setup",
+    "description": "Install Docker Engine + compose on a target Linux host"
+  },
+  {
+    "type": "template",
+    "name": "odoo-deploy",
+    "version": "0.1.0",
+    "license": "MIT",
+    "dir": "templates/odoo-deploy",
+    "description": "Deploy Odoo + PostgreSQL via docker compose"
+  },
+  {
+    "type": "template",
+    "name": "mariadb-standalone",
+    "version": "0.1.0",
+    "license": "MIT",
+    "dir": "templates/mariadb-standalone",
+    "description": "Deploy standalone MariaDB via docker compose"
+  },
+  {
+    "type": "template",
+    "name": "clickhouse-standalone",
+    "version": "0.1.0",
+    "license": "MIT",
+    "dir": "templates/clickhouse-standalone",
+    "description": "Deploy standalone ClickHouse via docker compose"
+  }
+]
