@@ -33,12 +33,19 @@ scripts/sonar-scan.sh
 Windows: chạy `sonar-scanner.bat` với `-Dsonar.host.url` `-Dsonar.token`
 `-Dsonar.scanner.skipJreProvisioning=true` (dùng Java local — tránh lỗi extract JRE cache).
 
-## Quality gate
-- Mục tiêu (plan 9.4): **0 new bug/vulnerability**, coverage code mới ≥ 70%.
-- Baseline scan đầu (2026-07-06): 0 bug, 0 vuln, 0 hotspot, coverage 57.1%, dup 0%,
-  6 code smell (5 cognitive-complexity + 1 TODO có chủ đích). Gate: **OK**.
+## Quality gate — "OpenITMS-SMB Gate" (khớp plan 9.4)
+Gate riêng gán cho project (không dùng "Sonar way" 80% mặc định), điều kiện trên **new code**:
+- `new_violations = 0` (0 new bug/vuln/smell)
+- `new_coverage ≥ 70%` (đúng plan 9.4; "Sonar way" mặc định 80% quá khắt cho giai đoạn đầu)
+- `new_duplicated_lines_density < 3%`
+
+Baseline (2026-07-06): **GATE OK** — 0 bug, 0 vuln, 0 hotspot, 0 new_violations,
+coverage tổng 57.1% / new code 75.9%, dup 0%, 5 code smell còn lại (4 cognitive-complexity
+tự nhiên: certstore.scan, manager.Scan, matchRoute, integration_test; 1 TODO có chủ đích).
+Handler đã refactor 32→<15.
 
 ## Việc còn lại để đóng P4-03
 - [ ] Gắn scan vào CI (self-hosted runner reach được instance, hoặc instance expose có auth).
-- [ ] Bật quality-gate "fail merge khi đỏ" trên PR.
-- [ ] Backup + upgrade định kỳ instance (thuộc `sonarqube-instance.md` khi có).
+- [ ] Bật quality-gate "fail merge khi đỏ" trên PR (webhook/GitHub check).
+- [ ] Backup + upgrade định kỳ instance.
+- [ ] (tùy chọn) refactor 4 complexity smell còn lại nếu chạm code đó.
