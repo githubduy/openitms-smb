@@ -14,7 +14,7 @@ rules:
     status: active
   - spec: docs/L2-specs/registry-format.md
     paths: ["registry/**"]
-    status: planned          # Phase 3
+    status: active
   - spec: docs/L2-specs/installer-linux.md
     paths: ["installer/**"]
     status: active
