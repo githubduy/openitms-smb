@@ -36,9 +36,15 @@ Cũng hỗ trợ `RunTask` (task runner core) với params `host/command/cert/ke
 3. Map client cert → user local/JEA (`New-Item WSMan:\localhost\ClientCertificate ...`).
 Template JEA/WinRS (P3-05) sẽ tự động hóa các bước này.
 
+## Timeout (robustness)
+`runWinRSCert` bọc lời gọi winrm trong goroutine + `select` trên `ctx.Done()` — handler
+LUÔN trả về trong `timeout` request dù `masterzen/winrm` dial không tôn trọng context cho
+host chết. Bug này (trước truyền `0` = treo vô hạn) phát hiện + fix qua E2E 2026-07-07.
+
 ## Test
-- Unit (không cần Windows, PASS 2026-07-06): metadata↔manifest routes khớp; classifyError
-  4 nhóm; resolveCertKey (combo.pem OK, pfx từ chối); handleExec validation (400/404);
-  handleListCerts.
-- **E2E cert thật cần Win11 lab** (`tests/e2e/winrs/README.md`) — chưa chạy (không có lab
-  trong môi trường dev/CI). Là điều kiện đóng AC cuối của P1-09.
+- Unit (không cần Windows): metadata↔manifest routes; classifyError 4 nhóm; resolveCertKey
+  (combo.pem OK, pfx từ chối); handleExec validation (400/404); handleListCerts.
+- **E2E qua core (2026-07-07)**: certstore nạp cert thật (`cn`, `has_key`); exec tới host chết
+  → lỗi phân loại "LỖI MẠNG: timeout" trong ~timeout giây, plugin sống sót. PASS.
+- **Cert-auth THẬT (exec thành công) cần WinRM HTTPS + cert-auth target** — cần admin cấu hình
+  (tests/e2e/winrs/README.md). Chưa chạy: máy dev không có admin. AC cuối P1-09.

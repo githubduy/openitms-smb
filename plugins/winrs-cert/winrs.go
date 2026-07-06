@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/masterzen/winrm"
 	"quickwin.dev/pluginmanager/certstore"
@@ -16,6 +17,7 @@ type winrsParams struct {
 	CertPEM []byte
 	KeyPEM  []byte
 	Command string
+	Timeout time.Duration // hard timeout cho dial+HTTP (0 → 60s) — tránh treo khi host không tồn tại
 }
 
 type winrsResult struct {
@@ -29,14 +31,18 @@ type winrsResult struct {
 func runWinRSCert(ctx context.Context, p winrsParams) (*winrsResult, error) {
 	// insecure=true: chấp nhận server cert self-signed (lab). Verify CA là tuỳ chọn v2
 	// (spec plugins-winrs-cert.md) — khi có, truyền CA vào tham số thứ 5 + insecure=false.
+	dialTimeout := p.Timeout
+	if dialTimeout <= 0 {
+		dialTimeout = 60 * time.Second
+	}
 	endpoint := winrm.NewEndpoint(
 		p.Host, p.Port,
-		true,  // https
-		true,  // insecure (xem chú thích trên)
-		nil,   // CA cert (v2)
+		true, // https
+		true, // insecure (xem chú thích trên)
+		nil,  // CA cert (v2)
 		p.CertPEM,
 		p.KeyPEM,
-		0,
+		dialTimeout, // hard timeout — không để 0 (treo vô hạn khi host chết)
 	)
 
 	params := winrm.DefaultParameters
@@ -49,12 +55,29 @@ func runWinRSCert(ctx context.Context, p winrsParams) (*winrsResult, error) {
 		return nil, fmt.Errorf("tạo WinRM client: %w", err)
 	}
 
-	var stdout, stderr strings.Builder
-	code, err := client.RunWithContext(ctx, p.Command, &stdout, &stderr)
-	if err != nil {
-		return nil, err
+	// masterzen/winrm không luôn tôn trọng ctx cho TCP dial → bọc goroutine + select
+	// để handler LUÔN trả về trong timeout, không treo API dù library dial chậm.
+	type outcome struct {
+		res *winrsResult
+		err error
 	}
-	return &winrsResult{ExitCode: code, Stdout: stdout.String(), Stderr: stderr.String()}, nil
+	done := make(chan outcome, 1)
+	go func() {
+		var stdout, stderr strings.Builder
+		code, rerr := client.RunWithContext(ctx, p.Command, &stdout, &stderr)
+		if rerr != nil {
+			done <- outcome{err: rerr}
+			return
+		}
+		done <- outcome{res: &winrsResult{ExitCode: code, Stdout: stdout.String(), Stderr: stderr.String()}}
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("timeout: không kết nối được %s trong thời gian cho phép (%v)", p.Host, dialTimeout)
+	case o := <-done:
+		return o.res, o.err
+	}
 }
 
 // resolveCertKey lấy PEM cert + key từ certstore entry.

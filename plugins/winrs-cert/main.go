@@ -111,6 +111,7 @@ func (p *plugin) handleExec(ctx context.Context, req *pluginv1.HttpRequest) (*pl
 
 	res, err := runWinRSCert(cctx, winrsParams{
 		Host: er.Host, Port: er.Port, CertPEM: pemCert, KeyPEM: pemKey, Command: er.Command,
+		Timeout: time.Duration(er.Timeout) * time.Second,
 	})
 	if err != nil {
 		// phân loại lỗi: cert / mạng / winrm-config (spec) — kèm hint
@@ -136,7 +137,7 @@ func (p *plugin) RunTask(ctx context.Context, spec *pluginv1.TaskSpec, emit sdk.
 	if err != nil {
 		return &pluginv1.TaskResult{Status: pluginv1.TaskStatus_TASK_STATUS_FAILED, Message: err.Error()}, nil
 	}
-	res, err := runWinRSCert(ctx, winrsParams{Host: host, Port: 5986, CertPEM: pemCert, KeyPEM: pemKey, Command: cmd})
+	res, err := runWinRSCert(ctx, winrsParams{Host: host, Port: 5986, CertPEM: pemCert, KeyPEM: pemKey, Command: cmd, Timeout: 60 * time.Second})
 	if err != nil {
 		return &pluginv1.TaskResult{Status: pluginv1.TaskStatus_TASK_STATUS_FAILED, Message: classifyError(err)}, nil
 	}
