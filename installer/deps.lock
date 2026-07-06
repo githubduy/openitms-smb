@@ -1,5 +1,9 @@
 # Dependency binary pin (name|url|sha256|extract-into). fetch-deps.sh verify sha256.
 # KHÔNG tự bump — đổi version phải có review (tránh supply-chain).
 # GPL: MariaDB GPLv2 đóng gói binary độc lập, socket-only (mere aggregation — plan 2.2, licenses/).
+#
+# NGUỒN: fetch-deps.sh ưu tiên LOCAL COPY (installer/vendor/<name>/ hoặc env DEPS_<NAME>_DIR)
+# rồi mới DOWNLOAD từ url dưới. Khuyến nghị bundle MariaDB từ binary local (mạng chặn external
+# hoặc air-gapped) — stage vào installer/vendor/mariadb/ (xem installer/vendor/README.md).
 mariadb|https://archive.mariadb.org/mariadb-11.4.4/bintar-linux-systemd-x86_64/mariadb-11.4.4-linux-systemd-x86_64.tar.gz|c9f26fd8c37a97458310fb577d6cc3bce44cf048c0e6ce014ee6ae157ebc1697|mariadb
 pwsh|https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/powershell-7.4.6-linux-x64.tar.gz|6f6015203c47806c5cc444c19d8ed019695e610fbd948154264bf9ca8e157561|pwsh

@@ -37,3 +37,11 @@ coverage.out
 
 # sonar-scanner work dir (chứa serverUrl nội bộ — KHÔNG commit)
 .scannerwork/
+
+# MariaDB/pwsh binary stage local (không commit binary lớn — fetch-deps copy từ đây)
+installer/vendor/*
+!installer/vendor/README.md
+
+# Local run/preview artifacts (không commit)
+run-local/
+.claude/launch.json
