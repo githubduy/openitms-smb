@@ -22,9 +22,9 @@ jobs:
 
       - name: Build dist (native, no Docker)
         run: |
-          scripts/build-all.sh
-          # installer/package.sh lắp bundle đầy đủ (P2 — MariaDB/pwsh) khi hoàn thiện
-          test -f installer/package.sh && installer/package.sh || echo "package.sh chưa có — dùng dist backend"
+          FULL_UI=1 scripts/build-all.sh || scripts/build-all.sh   # UI đầy đủ nếu node có
+          installer/fetch-deps.sh || echo "fetch-deps: deps.lock chưa pin version → bundle core-only"
+          installer/package.sh
 
       - name: License compliance (bắt buộc trong artifact)
         run: |
