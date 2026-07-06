@@ -94,6 +94,27 @@ jobs:
       - run: tests/e2e/smoke.sh
       - run: tests/e2e/plugin-through-core.sh
 
+  python-plugin:
+    # P3-06: chứng minh hợp đồng .proto đa ngôn ngữ — Python plugin qua Plugin Manager
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go-version.txt }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Install grpcio + gen Python stubs
+        run: |
+          pip install grpcio grpcio-tools
+          scripts/gen-proto-py.sh
+      - name: Go↔Python integration test
+        env:
+          PYTHONPATH: ${{ github.workspace }}/sdk/python:${{ github.workspace }}/proto/gen/python
+        run: |
+          cd plugin-manager
+          go test -tags python_integration -run TestPython ./...
+
   ui-build:
     # P1-07b + verify patch 0002/0003 trên UI thật: build frontend Vue (cần node)
     runs-on: ubuntu-latest

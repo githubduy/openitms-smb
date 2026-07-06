@@ -10,7 +10,7 @@ rules:
     paths: ["plugin-manager/schema/**"]
     status: active
   - spec: docs/L2-specs/proto-contract.md
-    paths: ["proto/**"]
+    paths: ["proto/**", "sdk/**"]
     status: active
   - spec: docs/L2-specs/registry-format.md
     paths: ["registry/**"]
