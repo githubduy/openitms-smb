@@ -7,7 +7,8 @@
 > | P0-02, 03, 04, 05 | ✅ xong — repo + submodule v2.18.16 + Go 1.24.6 trong `./Go/` + patch system test PASS; binary `quickwin-dev-sem2.18.16` build OK trên Windows (Linux verify khi CI chạy) |
 > | P0-06 | 🟡 script sync-upstream có, chưa diễn tập với tag thật |
 > | P0-07, 09, 10, 12 | ✅ xong — license/NOTICE + docs L0/L1 + ADR 0001–0004 + guideline + OWNERS.yaml + governance/issue forms |
-> | P0-08, 13 | 🟡 file CI + policy đã viết — cần push GitHub để chạy thật + bật push protection/mirror |
+> | P0-08 | ✅ **CI XANH TOÀN BỘ trên GitHub** (run fe27eca, 2026-07-06): build+patch-chain+tests, smoke, plugin-through-core, patch-hygiene, license, gitleaks, proto, banned-words — lần đầu verify trên Linux |
+> | P0-13 | 🟡 Đã bật: secret scanning + push protection + branch protection main (enforce_admins=false thời bootstrap). Còn: secret `BANNED_WORDS_REGEX` (token Secrets đang read-only), mirror Codeberg, 2FA org |
 > | P0-11 | ✅ testing-strategy.md + `tests/e2e/smoke.sh` chạy PASS thật (server bolt + /api/ping + UI 200); tầng 3-4 dựng ở P1/P2 |
 > | P1-01 | ✅ schema + spec + validator Go (jsonschema embedded) — test bắt đủ 6 case lỗi PASS |
 > | P1-02 | ✅ proto v1 + buf (lint except 3 naming rule có chủ đích) + stubs generate (`scripts/gen-proto.sh`) — `buf breaking` chạy khi CI lên GitHub |
