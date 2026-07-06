@@ -24,7 +24,18 @@
 > | P1-08 | ✅ **Patch 0003** (bộ-4) banner nhắc đổi mật khẩu mặc định (admin/quickwin123) — dismissible localStorage, mở dialog đổi pass sẵn có; chain 0001+0002+0003 apply+build PASS; UI compile qua ui-build CI |
 > | P1-09 | 🟡 Plugin winrs-cert code + test XONG (WinRM cert-auth qua masterzen/winrm, dùng certstore, phân loại lỗi cert/mạng/auth, API exec+certs). Unit test PASS. **E2E cert thật cần Win11 lab** (tests/e2e/winrs/README.md) → điều kiện đóng AC cuối |
 > | P4-03 | 🟡 **SonarQube self-host CHẠY THẬT** (2026-07-06): project `openitms-smb` mới (thay itdn-portal); gate riêng "OpenITMS-SMB Gate" khớp plan 9.4 (new_coverage≥70, 0 new_violations, dup<3) → **GATE OK** (coverage new 75.9%, 0 bug/vuln/hotspot, 5 smell complexity). Quét CHỈ code ta. `sonar-project.properties` public-safe + `scripts/sonar-scan.sh` (host/token qua env, `.scannerwork/`+coverage.out gitignored). Handler refactor 32→<15. Còn: gắn CI + fail-merge-when-red |
-> | Còn lại | ⬜ (P2-03 pwsh/dist, P2-05 hardening, P2-06 settings UI, P3+) |
+> | **P3-01/02/03** | 🟡 Registry package XONG (ed25519 sign/verify/install/CLI, test pass — build→sign→install round-trip + chống tamper). Còn: patch 0005 hook core + UI + publish pipeline |
+> | **P3-05** | ✅ 5 template preload (jea-winrs-setup pwsh + docker/odoo/mariadb/clickhouse bash) + CI shellcheck; guide + spec |
+> | **P3-06** | ✅ Python SDK + demo hello-py (handshake go-plugin + gRPC) + gen-proto-py + integration test (build tag) + CI job — chứng minh proto đa ngôn ngữ (verify CI, pip bị proxy chặn local) |
+> | **P3-04** | ⬜ Endpoint Script Manager (patch 0004) — cần core patch + UI |
+> | **P4-01** | ✅ ai-triage.yml (keyword label + hỏi thiếu info); AI-dev đầy đủ cần self-hosted runner + API key (maintainer) |
+> | **P4-02** | ✅ 6 AI Skills (`.claude/skills/`: dev-core-patch, dev-plugin, dev-registry, dev-template, sync-upstream, release) |
+> | **P4-03** | ✅ SonarQube gate OK (đã làm) |
+> | **P4-04** | 🟡 release.yml (tag quickwin-v* → dist + release note + publish registry) — cần secret REGISTRY_PRIVATE_KEY + package.sh hoàn thiện |
+> | **P4-05** | ⬜ Website public (render docs) — cần domain/Pages |
+> | **P4-06** | 🟡 Diễn tập sync PASS (P0-06); Release v1.0 chờ đóng gói Phase 2 hoàn chỉnh |
+> | **P5-A/B/C** | ⬜ scaffolding doc xong (Windows installer, Live USB Alpine + rủi ro musl/pwsh, HA survey) — làm sau v1.0 |
+> | Còn lại | P2-03 pwsh/dist, P2-05 hardening, P2-06 settings UI, patch 0004/0005 hook |
 >
 > **Chờ user:** (1) token Secrets read→write để tạo secret BANNED_WORDS_REGEX; (2) Win11 lab cho E2E winrs-cert; (3) revoke/rotate token đã lộ.
 

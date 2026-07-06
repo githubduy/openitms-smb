@@ -1,0 +1,57 @@
+# P4-01 — ai-triage: tự gắn label area/severity cho issue mới + hỏi lại nếu thiếu info.
+# Bản keyword (chạy ngay, không cần secret). AI-dev đầy đủ (spawn Claude Code headless trên
+# branch ai/<issue>) do maintainer bật riêng bằng self-hosted runner + ANTHROPIC_API_KEY —
+# xem docs/L3-development/ai-workflow.md.
+name: ai-triage
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const body = (context.payload.issue.body || '').toLowerCase();
+            const title = (context.payload.issue.title || '').toLowerCase();
+            const text = title + '\n' + body;
+            const labels = new Set();
+
+            // area routing theo keyword (khớp Issue Forms + guideline)
+            const areas = {
+              'area:core-patch': ['core-patch','core patch','upstream','router.go','patch 000'],
+              'area:plugin':     ['plugin','winrs','hardening','go-plugin','manifest'],
+              'area:registry':   ['registry','index.json','sign','ký số'],
+              'area:installer':  ['installer','install.sh','mariadb','systemd','dist'],
+              'area:template':   ['template','playbook','odoo','clickhouse','jea'],
+            };
+            for (const [label, kws] of Object.entries(areas))
+              if (kws.some(k => text.includes(k))) labels.add(label);
+
+            if (text.includes('security') || text.includes('vuln') || text.includes('cve'))
+              labels.add('severity:security');
+
+            if (labels.size) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.payload.issue.number, labels: [...labels],
+              });
+            }
+
+            // thiếu info → comment hỏi (1 lần, chỉ khi mở mới)
+            if (context.payload.action === 'opened') {
+              const hasRepro = body.includes('bước') || body.includes('step') || body.includes('repro');
+              const hasAccept = body.includes('acceptance') || body.includes('thế nào là xong') || body.includes('kỳ vọng');
+              if (!hasRepro && !hasAccept) {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner, repo: context.repo.repo,
+                  issue_number: context.payload.issue.number,
+                  body: 'Cảm ơn báo cáo. Để AI có thể tự xử lý, bổ sung giúp: **các bước tái hiện** (bug) hoặc **acceptance criteria đo được** (feature). Xem docs/L3-development/ai-workflow.md.',
+                });
+              }
+            }

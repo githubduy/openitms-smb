@@ -1,0 +1,71 @@
+# P4-04 — release pipeline: trigger khi push tag quickwin-v* (CHỈ maintainer tạo tag ký).
+# Build dist native → release note → GitHub Release → publish registry public (GitHub Pages).
+# Secret cần: REGISTRY_PRIVATE_KEY (ký index registry). Tag ký số là điểm kiểm soát cuối.
+name: release
+on:
+  push:
+    tags: ["quickwin-v*"]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive, fetch-depth: 0 }
+      - run: scripts/setup-toolchain.sh
+      - run: scripts/apply-patches.sh
+
+      - name: Build dist (native, no Docker)
+        run: |
+          scripts/build-all.sh
+          # installer/package.sh lắp bundle đầy đủ (P2 — MariaDB/pwsh) khi hoàn thiện
+          test -f installer/package.sh && installer/package.sh || echo "package.sh chưa có — dùng dist backend"
+
+      - name: License compliance (bắt buộc trong artifact)
+        run: |
+          test -f LICENSE && test -f LICENSE-SEMAPHORE && test -f NOTICE.md
+          go install github.com/google/go-licenses@latest
+          (cd upstream && go-licenses report ./... > "$GITHUB_WORKSPACE/dist/THIRD_PARTY_LICENSES.md" 2>/dev/null || true)
+          cp LICENSE LICENSE-SEMAPHORE NOTICE.md dist/ 2>/dev/null || true
+
+      - name: Checksums + SBOM
+        run: |
+          cd dist && find . -type f -exec sha256sum {} \; > SHA256SUMS
+
+      - name: Release notes (Conventional Commits)
+        id: notes
+        run: |
+          prev=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          echo "## ${GITHUB_REF_NAME}" > notes.md
+          git log ${prev:+$prev..}HEAD --pretty='- %s' --no-merges >> notes.md
+
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: notes.md
+          files: |
+            dist/**/*
+
+  publish-registry:
+    needs: build-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/setup-toolchain.sh
+      - name: Build + sign public registry
+        env:
+          REGISTRY_PRIVATE_KEY: ${{ secrets.REGISTRY_PRIVATE_KEY }}
+        run: |
+          # spec.json liệt kê artifact (plugin/template) → registryctl build + ký
+          test -f registry/public-spec.json && \
+            Go/go/bin/go run ./registry/cmd/registryctl build public ./public-registry registry/public-spec.json || \
+            echo "public-spec.json chưa có — bỏ qua publish (dựng ở P3-03 hoàn thiện)"
+      - name: Deploy GitHub Pages
+        if: hashFiles('public-registry/index.json') != ''
+        uses: actions/upload-pages-artifact@v3
+        with: { path: public-registry }

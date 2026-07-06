@@ -473,20 +473,24 @@ squash-merge mặc định cho PR của AI để lịch sử `main` sạch.
 - [ ] Watcher thư mục certs; admin default + banner đổi mật khẩu.
 - [ ] Plugin `hardening` v1.
 
-### Phase 3 — Registry + Templates (tuần 10–13)
-- [ ] Registry static index + ký số; client trong core (patch 0005); local + public mặc định.
-- [ ] Endpoint Script Manager (patch 0004).
-- [ ] 5 template preload (JEA/WinRS, Docker, Odoo, MariaDB, ClickHouse).
-- [ ] SDK Python + 1 plugin Python demo (chứng minh hợp đồng .proto).
+### Phase 3 — Registry + Templates (tuần 10–13) — 🟡 phần lớn xong
+- [x] Registry static index + ký số (ed25519) — package `registry/` + client + CLI, test pass.
+      → [ ] còn: client trong core (patch 0005) + UI + local/public publish pipeline.
+- [ ] Endpoint Script Manager (patch 0004) — cần core patch + UI.
+- [x] 5 template preload (JEA/WinRS, Docker, Odoo, MariaDB, ClickHouse) + CI shellcheck.
+- [x] SDK Python + plugin `hello-py` (chứng minh hợp đồng .proto đa ngôn ngữ) — verify CI.
 
-### Phase 4 — Quy trình AI + Release công khai (tuần 14–16)
-- [ ] Issue forms + ai-triage + AI dev skills + SonarQube gate.
-- [ ] Pipeline release: release note, website, publish registry tự động.
-- [ ] **Public release v1.0 (Linux).**
+### Phase 4 — Quy trình AI + Release công khai (tuần 14–16) — 🟡 khung xong
+- [x] Issue forms + ai-triage (keyword) + 6 AI dev skills + SonarQube gate (OK).
+      → [ ] AI-dev đầy đủ cần self-hosted runner + ANTHROPIC_API_KEY (maintainer bật).
+- [x] Pipeline release (`release.yml`): release note + publish registry — [ ] cần secret + package.sh.
+- [ ] Website public (render docs) — cần Pages/domain.
+- [ ] **Public release v1.0 (Linux)** — chờ đóng gói Phase 2 hoàn chỉnh.
 
-### Phase 5 — Windows & Live USB (sau v1.0)
-- [ ] Windows installer (service) → v1.x.
-- [ ] Live USB Linux minimal → v2.x.
+### Phase 5 — Windows & Live USB (sau v1.0) — scaffolding doc xong
+- [ ] Windows installer (service) → v1.x. *(doc: L5 phase5-windows-installer.md)*
+- [ ] Live USB **Alpine** minimal → v2.x. *(doc: phase5-liveusb-alpine.md — rủi ro musl/pwsh ghi rõ)*
+- [ ] HA/cluster khảo sát. *(doc: phase5-ha-survey.md)*
 
 ---
 
