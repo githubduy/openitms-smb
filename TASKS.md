@@ -18,7 +18,8 @@
 > | P1-06 | ✅ **Patch 0001 hoàn thành đúng bộ-4** (patch + series + CHANGELOG + spec). Hook mỏng: 1 dòng router.go + 5 dòng go.mod + file mới quickwin_plugins.go (~60 dòng keo, go.sum generated). Verify: reset sạch → apply → build → E2E `plugin-through-core.sh` PASS (core load hello, 401 chưa login, login session thật → info/echo trả đúng caller admin); smoke không plugins vẫn PASS (degrade gracefully) |
 > | P1-07 | 🟡 **Patch 0002 branding v1** (bộ-4 đủ): title + logo/favicon SVG + tên app i18n (5 lang) — chain 0001+0002 apply sạch + build PASS. Còn P1-07b: chuỗi i18n dài + About attribution + favicon.png — cần node/FULL_UI (CI) |
 > | P2-04 | ✅ Package `certstore` (nạp nóng .pem/.pfx, poll watcher, file rác an toàn) — 3 test PASS trên Windows. Wire vào winrs-cert ở P1-09 |
-> | P2-01/02 | 🟡 Installer Linux viết xong (install.sh idempotent + my.cnf socket-only + 2 systemd unit + uninstall) — syntax OK; còn fetch-mariadb + package.sh + **E2E VM offline** để đóng AC |
+> | P2-01/02 | 🟡 Installer Linux + package.sh (lắp bundle native, build 5 plugin) — syntax OK; còn fetch-deps (MariaDB/pwsh binary) + **E2E VM offline** để đóng AC |
+> | **P2-05** | ✅ Plugin `hardening` — quét bảo mật host (default pass, quyền config/certs 0600/0750, TLS, db-pass) + fix chmod; 4 unit test PASS (phát hiện default pass, không false-positive, fix hoạt động) |
 > | P0-06 | ✅ Diễn tập sync-upstream: v2.18.16 PASS end-to-end (fetch/apply/build/test); tag giả exit 128 lỗi rõ |
 > | P1-07b | ✅ CI job `ui-build` build frontend Vue thật (npm ci + build) + assert branding OpenITMS-SMB vào index.html — XANH trên GitHub |
 > | P1-08 | ✅ **Patch 0003** (bộ-4) banner nhắc đổi mật khẩu mặc định (admin/quickwin123) — dismissible localStorage, mở dialog đổi pass sẵn có; chain 0001+0002+0003 apply+build PASS; UI compile qua ui-build CI |
