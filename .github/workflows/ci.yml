@@ -93,3 +93,24 @@ jobs:
       - run: scripts/build-all.sh
       - run: tests/e2e/smoke.sh
       - run: tests/e2e/plugin-through-core.sh
+
+  ui-build:
+    # P1-07b + verify patch 0002/0003 trên UI thật: build frontend Vue (cần node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - name: Apply patches (branding 0002 + banner 0003 chạm web/)
+        run: scripts/apply-patches.sh
+      - name: npm ci + build frontend
+        working-directory: upstream/web
+        run: |
+          npm ci
+          npm run build
+      - name: Verify branding đã vào bundle build
+        run: |
+          grep -rq "OpenITMS-SMB" upstream/api/public/index.html || \
+            { echo "ERROR: title OpenITMS-SMB không có trong index.html đã build"; exit 1; }
+          echo "OK: branding present in built UI"

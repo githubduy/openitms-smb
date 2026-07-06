@@ -4,3 +4,4 @@
 # (chưa có patch nào — Phase 1 sẽ thêm 0001-plugin-manager-hook.patch)
 0001-plugin-manager-hook.patch
 0002-branding.patch
+0003-default-password-banner.patch
