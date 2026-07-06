@@ -30,9 +30,9 @@
     },
     "entrypoint": {
       "type": "object",
-      "required": ["linux-amd64"],
+      "minProperties": 1,
       "additionalProperties": false,
-      "description": "binary theo platform, path tương đối trong thư mục plugin",
+      "description": "ít nhất 1 entrypoint: binary theo platform (linux-amd64...) HOẶC python",
       "properties": {
         "linux-amd64":   { "type": "string" },
         "linux-arm64":   { "type": "string" },
