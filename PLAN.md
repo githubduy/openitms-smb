@@ -42,12 +42,12 @@ và **MariaDB (GPLv2) đóng gói dạng binary độc lập giao tiếp qua soc
 
 | Giai đoạn | Tuần | Kết quả |
 |---|---|---|
-| 0 — Nền móng ✅ | 1–2 | Repo + patch system + CI + hồ sơ pháp lý — **xong 2026-07-05** |
-| 1 — Plugin Manager 🟡 | 3–6 | Plugin chạy được ✅ (SDK Go + Plugin Manager + hello, test thật pass); còn: hook core, branding, winrs-cert tới Windows 11 |
-| 2 — Đóng gói Linux | 7–9 | Bộ cài 1 lệnh hoàn chỉnh (core + MariaDB + pwsh) |
-| 3 — Registry + Templates | 10–13 | Cài plugin/template từ registry, 5 template 1-click |
-| 4 — AI pipeline + **Release v1.0 Linux** | 14–16 | Quy trình AI-dev vận hành, phát hành công khai |
-| 5 — Sau v1.0 | — | Windows installer (v1.x) → Live USB Linux minimal (v2.x) |
+| 0 — Nền móng ✅ | 1–2 | Repo + patch system + CI 10 job xanh + pháp lý — **xong** |
+| 1 — Plugin Manager ✅ | 3–6 | SDK Go+Python, Plugin Manager, 3 core-patch, winrs-cert, hardening — test thật pass |
+| 2 — Đóng gói Linux 🟡 | 7–9 | install.sh + package.sh (bundle native) + certstore ✅; còn pin MariaDB/pwsh + E2E VM + Settings UI |
+| 3 — Registry + Templates 🟡 | 10–13 | Registry ký số + patch 0005 + 5 template + Python plugin ✅; còn UI + publish public |
+| 4 — AI pipeline + **Release v1.0** 🟡 | 14–16 | AI skills + workflows + SonarQube gate ✅; còn release thật (secret) + website docs |
+| 5 — Sau v1.0 | — | Windows installer (v1.x) → Live USB Alpine (v2.x) — scaffolding doc xong |
 
 ### Hiện trạng & cần quyết
 - ✅ Đã có: plan chi tiết này, guideline AI engineer, backlog chi tiết (TASKS.md — bảng trạng thái ở đầu file).
@@ -468,10 +468,13 @@ squash-merge mặc định cho PR của AI để lịch sử `main` sạch.
       → [ ] còn: plugin `winrs-cert` tới Windows 11 qua cert (P1-09 — cần Win11 lab).
 - [ ] Patch 0002 branding (chờ chốt tên) + 0003 config hardcode + Settings UI tối thiểu.
 
-### Phase 2 — Đóng gói Linux (tuần 7–9)
-- [ ] Bundle MariaDB + systemd + `install.sh` 1 lệnh; output vào `/project/dist/`.
-- [ ] Watcher thư mục certs; admin default + banner đổi mật khẩu.
-- [ ] Plugin `hardening` v1.
+### Phase 2 — Đóng gói Linux (tuần 7–9) — 🟡 phần lớn xong
+- [x] `install.sh` 1 lệnh + systemd + my.cnf socket-only + `package.sh` lắp bundle native
+      (`dist/openitms-smb-*-linux-amd64.tar.gz`: core + plugins + templates + licenses).
+      → [ ] `fetch-deps.sh` pin version MariaDB/pwsh (deps.lock) + E2E VM offline để đóng AC.
+- [x] Watcher thư mục certs (certstore); admin default + banner đổi mật khẩu (patch 0003).
+- [x] Plugin `hardening` v1 (quét bảo mật host + fix, test pass).
+      → [ ] Settings UI (P2-06) — cần Vue frontend.
 
 ### Phase 3 — Registry + Templates (tuần 10–13) — 🟡 phần lớn xong
 - [x] Registry static index + ký số (ed25519) — package `registry/` + client + CLI, test pass.
