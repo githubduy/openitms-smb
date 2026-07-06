@@ -30,3 +30,10 @@ Thumbs.db
 # === Scratch ===
 tmp/
 *.log
+
+# coverage reports (sinh khi scan sonar)
+coverage.out
+**/coverage.out
+
+# sonar-scanner work dir (chứa serverUrl nội bộ — KHÔNG commit)
+.scannerwork/

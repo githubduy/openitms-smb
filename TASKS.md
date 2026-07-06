@@ -23,6 +23,7 @@
 > | P1-07b | ✅ CI job `ui-build` build frontend Vue thật (npm ci + build) + assert branding OpenITMS-SMB vào index.html — XANH trên GitHub |
 > | P1-08 | ✅ **Patch 0003** (bộ-4) banner nhắc đổi mật khẩu mặc định (admin/quickwin123) — dismissible localStorage, mở dialog đổi pass sẵn có; chain 0001+0002+0003 apply+build PASS; UI compile qua ui-build CI |
 > | P1-09 | 🟡 Plugin winrs-cert code + test XONG (WinRM cert-auth qua masterzen/winrm, dùng certstore, phân loại lỗi cert/mạng/auth, API exec+certs). Unit test PASS. **E2E cert thật cần Win11 lab** (tests/e2e/winrs/README.md) → điều kiện đóng AC cuối |
+> | P4-03 | 🟡 **SonarQube self-host CHẠY THẬT** (2026-07-06): project `openitms-smb` tạo mới (thay itdn-portal), scan thành công — Gate **OK**, 0 bug/vuln/hotspot, coverage 57.1%, 6 smell (5 complexity + 1 TODO). Quét CHỈ code ta (loại upstream). `sonar-project.properties` (public-safe) + `scripts/sonar-scan.sh` (host/token qua env). Còn: gắn vào CI + fail-merge-when-red |
 > | Còn lại | ⬜ (P2-03 pwsh/dist, P2-05 hardening, P2-06 settings UI, P3+) |
 >
 > **Chờ user:** (1) token Secrets read→write để tạo secret BANNED_WORDS_REGEX; (2) Win11 lab cho E2E winrs-cert; (3) revoke/rotate token đã lộ.
