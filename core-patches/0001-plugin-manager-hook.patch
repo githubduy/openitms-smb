@@ -1,25 +1,20 @@
 # PATCH: 0001-plugin-manager-hook
-# WHY: Tính năng plugin (ADR-0001) cần 1 điểm hook DUY NHẤT trong core để (a) start
-#      Plugin Manager lúc service lên và (b) mount API động /api/plugins/ TRÊN subrouter
-#      đã qua middleware `authentication` — nhờ đó plugin thừa hưởng authn của Semaphore,
-#      không tự mở cửa riêng. Toàn bộ logic nằm ở module ngoài cây upstream
-#      (quickwin.dev/pluginmanager); nếu upstream đổi router, chỉ cần tìm lại chỗ tạo
-#      `authenticatedAPI` (PathPrefix "api" + Use(...authentication)) và gọi lại
-#      registerQuickwinPlugins(authenticatedAPI) ngay sau đó.
-# WHAT: (1) file MỚI api/quickwin_plugins.go — keo: env QUICKWIN_PLUGINS_DIR (default
-#      "plugins"), Scan+Start manager, map helpers user → pluginv1.Caller;
-#      (2) api/router.go +1 dòng gọi registerQuickwinPlugins;
-#      (3) go.mod +require/replace quickwin.dev/* (path tương đối); go.sum GENERATED —
-#      conflict ở go.sum thì đừng đọc diff, chạy lại `go mod tidy` là xong.
+# WHY: Tinh nang plugin (ADR-0001) can 1 diem hook DUY NHAT trong core de start Plugin
+#      Manager + mount API dong /api/plugins/ TREN subrouter da qua middleware authentication.
+#      Logic that o quickwin.dev/pluginmanager. Rebase: tim lai cho tao authenticatedAPI
+#      (PathPrefix "api" + Use(...authentication)) roi goi registerQuickwinPlugins ngay sau.
+# WHAT: file MOI api/quickwin_plugins.go (keo: env QUICKWIN_PLUGINS_DIR, Scan+Start,
+#      GET /api/plugins list + mount /api/plugins/ dong, map user->Caller); router.go +1 dong;
+#      go.mod +require/replace quickwin.dev/{pluginmanager,proto,sdk}. go.sum generated (go mod tidy).
 # SPEC: docs/L2-specs/core-patches/0001-plugin-manager-hook.md
 # BASELINE: v2.18.16
 #
 diff --git a/api/quickwin_plugins.go b/api/quickwin_plugins.go
 new file mode 100644
-index 0000000..98ce388
+index 0000000..87859e7
 --- /dev/null
 +++ b/api/quickwin_plugins.go
-@@ -0,0 +1,60 @@
+@@ -0,0 +1,68 @@
 +// QUICKWIN PATCH 0001 — hook Plugin Manager vào core.
 +// File này được thêm bởi core-patches/0001-plugin-manager-hook.patch.
 +// Toàn bộ logic plugin nằm ở module ngoài cây upstream (quickwin.dev/pluginmanager);
@@ -29,6 +24,7 @@ index 0000000..98ce388
 +
 +import (
 +	"context"
++	"encoding/json"
 +	"net/http"
 +	"os"
 +
@@ -63,6 +59,13 @@ index 0000000..98ce388
 +		log.WithError(err).Error("quickwin: một số plugin không start được (xem log trên)")
 +	}
 +
++	// GET /api/plugins — liệt kê plugin đã cài + trạng thái (cho UI quản lý).
++	authenticatedAPI.HandleFunc("/plugins", func(w http.ResponseWriter, _ *http.Request) {
++		w.Header().Set("Content-Type", "application/json")
++		_ = json.NewEncoder(w).Encode(map[string]any{"plugins": mgr.States()})
++	}).Methods("GET")
++
++	// /api/plugins/<name>/<route> — API động proxy sang plugin.
 +	authenticatedAPI.PathPrefix("/plugins/").Handler(mgr.Handler(quickwinCaller))
 +	log.Infof("quickwin: plugin manager mounted at api/plugins (dir=%s)", dir)
 +}

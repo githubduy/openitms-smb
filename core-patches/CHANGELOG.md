@@ -3,6 +3,11 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-06 — 0006-management-ui.patch
+**WHY:** UI quản lý OpenITMS (Plugins/Registry/Hardening) — tính năng core theo plan.
+**WHAT:** view mới OpenITMS.vue (3 tab, axios gọi /api/plugins + /api/registry + hardening);
+router +route /openitms; App.vue +nav item. Thuần frontend. Verify: ui-build CI (cần node).
+
 ## 2026-07-06 — 0005-registry-client.patch
 **WHY:** registry client = ngoại lệ core được duyệt (ADR-0003), hạ tầng plugin/template phụ thuộc.
 **WHAT:** file mới api/quickwin_registry.go (search + install, verify sig+checksum, unpack plugin);

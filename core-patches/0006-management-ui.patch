@@ -1,0 +1,298 @@
+# PATCH: 0006-management-ui
+# WHY: UI quan ly OpenITMS (Settings/Plugins/Registry la tinh nang core theo plan). Trang
+#      /openitms cho admin: liet ke plugin, tim+cai tu registry, quet+fix hardening.
+#      Thuan frontend Vue, goi API da co (patch 0001 GET /api/plugins, 0005 /api/registry).
+# WHAT: file MOI web/src/views/OpenITMS.vue (v-tabs Plugins/Registry/Hardening, axios);
+#      router/index.js +import +route /openitms; App.vue +1 nav item (sau runners).
+#      Rebase: neu router/App.vue doi, them lai import+route+nav item.
+# SPEC: docs/L2-specs/core-patches/0006-management-ui.md
+# BASELINE: v2.18.16
+#
+diff --git a/web/src/App.vue b/web/src/App.vue
+index a70c921..b2b5c2c 100644
+--- a/web/src/App.vue
++++ b/web/src/App.vue
+@@ -458,6 +458,16 @@
+                 </v-list-item-content>
+               </v-list-item>
+ 
++              <v-list-item key="openitms" to="/openitms" v-if="user.admin">
++                <v-list-item-icon>
++                  <v-icon>mdi-shield-server</v-icon>
++                </v-list-item-icon>
++
++                <v-list-item-content>
++                  OpenITMS
++                </v-list-item-content>
++              </v-list-item>
++
+               <v-list-item key="cluster" to="/cluster" v-if="user.admin">
+                 <v-list-item-icon>
+                   <v-icon>mdi-server-network</v-icon>
+diff --git a/web/src/router/index.js b/web/src/router/index.js
+index e60cc4e..4839129 100644
+--- a/web/src/router/index.js
++++ b/web/src/router/index.js
+@@ -29,6 +29,7 @@ import Runners from '../views/Runners.vue';
+ import Cluster from '../views/Cluster.vue';
+ import Stats from '../views/project/Stats.vue';
+ import Tokens from '../views/Tokens.vue';
++import OpenITMS from '../views/OpenITMS.vue';
+ import AcceptInvite from '../views/AcceptInvite.vue';
+ import SecretStorage from '../views/project/SecretStorages.vue';
+ 
+@@ -183,6 +184,10 @@ const routes = [
+     path: '/apps',
+     component: Apps,
+   },
++  {
++    path: '/openitms',
++    component: OpenITMS,
++  },
+   {
+     path: '/tokens',
+     component: Tokens,
+diff --git a/web/src/views/OpenITMS.vue b/web/src/views/OpenITMS.vue
+new file mode 100644
+index 0000000..1a98d79
+--- /dev/null
++++ b/web/src/views/OpenITMS.vue
+@@ -0,0 +1,238 @@
++<!-- QUICKWIN PATCH 0006 — UI quản lý OpenITMS (Plugins / Registry / Hardening).
++     Self-contained: gọi API /api/plugins, /api/registry, /api/plugins/hardening. -->
++<template>
++  <div>
++    <v-toolbar flat>
++      <v-toolbar-title>OpenITMS</v-toolbar-title>
++      <v-spacer></v-spacer>
++      <v-btn icon @click="reloadCurrent"><v-icon>mdi-refresh</v-icon></v-btn>
++    </v-toolbar>
++
++    <v-tabs v-model="tab" class="mt-2">
++      <v-tab>Plugins</v-tab>
++      <v-tab>Registry</v-tab>
++      <v-tab>Hardening</v-tab>
++    </v-tabs>
++
++    <v-alert v-if="error" type="error" dense class="ma-2">{{ error }}</v-alert>
++
++    <v-tabs-items v-model="tab">
++      <!-- PLUGINS -->
++      <v-tab-item>
++        <v-data-table
++          :headers="pluginHeaders"
++          :items="plugins"
++          :loading="loading"
++          class="mt-4"
++          :footer-props="{ itemsPerPageOptions: [20] }"
++        >
++          <template v-slot:item.state="{ item }">
++            <v-chip small :color="item.state === 'running' ? 'green' : 'red'" dark>
++              {{ item.state }}
++            </v-chip>
++          </template>
++        </v-data-table>
++      </v-tab-item>
++
++      <!-- REGISTRY -->
++      <v-tab-item>
++        <v-toolbar flat>
++          <v-text-field
++            v-model="query"
++            label="Tìm artifact"
++            prepend-inner-icon="mdi-magnify"
++            hide-details
++            dense
++            @keyup.enter="search"
++          ></v-text-field>
++          <v-btn color="primary" class="ml-2" @click="search">Tìm</v-btn>
++        </v-toolbar>
++        <v-data-table
++          :headers="registryHeaders"
++          :items="artifacts"
++          :loading="loading"
++          class="mt-2"
++          :footer-props="{ itemsPerPageOptions: [20] }"
++        >
++          <template v-slot:item.actions="{ item }">
++            <v-btn
++              small
++              color="primary"
++              :disabled="!isAdmin"
++              @click="install(item)"
++            >Cài</v-btn>
++          </template>
++        </v-data-table>
++      </v-tab-item>
++
++      <!-- HARDENING -->
++      <v-tab-item>
++        <v-toolbar flat>
++          <v-btn color="primary" @click="scan" :loading="loading">Quét bảo mật</v-btn>
++          <v-spacer></v-spacer>
++          <v-chip v-if="scanned" :color="issues ? 'red' : 'green'" dark>
++            {{ issues }} vấn đề
++          </v-chip>
++        </v-toolbar>
++        <v-data-table
++          :headers="findingHeaders"
++          :items="findings"
++          class="mt-2"
++          :footer-props="{ itemsPerPageOptions: [20] }"
++        >
++          <template v-slot:item.passed="{ item }">
++            <v-icon :color="item.passed ? 'green' : 'red'">
++              {{ item.passed ? 'mdi-check-circle' : 'mdi-alert-circle' }}
++            </v-icon>
++          </template>
++          <template v-slot:item.severity="{ item }">
++            <v-chip x-small :color="sevColor(item.severity)" dark>{{ item.severity }}</v-chip>
++          </template>
++          <template v-slot:item.actions="{ item }">
++            <v-btn
++              v-if="!item.passed && item.fixable"
++              x-small
++              color="orange darken-2"
++              dark
++              :disabled="!isAdmin"
++              @click="fix(item)"
++            >Fix</v-btn>
++          </template>
++        </v-data-table>
++      </v-tab-item>
++    </v-tabs-items>
++  </div>
++</template>
++
++<script>
++import axios from 'axios';
++
++export default {
++  data() {
++    return {
++      tab: 0,
++      loading: false,
++      error: null,
++      plugins: [],
++      query: '',
++      artifacts: [],
++      findings: [],
++      issues: 0,
++      scanned: false,
++      pluginHeaders: [
++        { text: 'Tên', value: 'name' },
++        { text: 'Version', value: 'version' },
++        { text: 'Trạng thái', value: 'state' },
++        { text: 'PID', value: 'pid' },
++        { text: 'Restarts', value: 'restarts' },
++      ],
++      registryHeaders: [
++        { text: 'Tên', value: 'name' },
++        { text: 'Loại', value: 'type' },
++        { text: 'Version', value: 'version' },
++        { text: 'License', value: 'license' },
++        { text: '', value: 'actions', sortable: false },
++      ],
++      findingHeaders: [
++        { text: '', value: 'passed', sortable: false, width: 40 },
++        { text: 'Mức', value: 'severity' },
++        { text: 'Kiểm tra', value: 'title' },
++        { text: 'Chi tiết', value: 'detail' },
++        { text: '', value: 'actions', sortable: false },
++      ],
++    };
++  },
++
++  computed: {
++    isAdmin() {
++      return !!(this.$root && this.$root.user && this.$root.user.admin);
++    },
++  },
++
++  created() {
++    this.loadPlugins();
++  },
++
++  methods: {
++    sevColor(s) {
++      if (s === 'high') return 'red';
++      if (s === 'medium') return 'orange';
++      return 'grey';
++    },
++
++    reloadCurrent() {
++      if (this.tab === 0) this.loadPlugins();
++      else if (this.tab === 1) this.search();
++      else this.scan();
++    },
++
++    async loadPlugins() {
++      this.error = null;
++      this.loading = true;
++      try {
++        const { data } = await axios.get('/api/plugins');
++        this.plugins = data.plugins || [];
++      } catch (e) {
++        this.error = this.errText(e);
++      } finally {
++        this.loading = false;
++      }
++    },
++
++    async search() {
++      this.error = null;
++      this.loading = true;
++      try {
++        const { data } = await axios.get('/api/registry/search', { params: { q: this.query } });
++        this.artifacts = data.artifacts || [];
++      } catch (e) {
++        this.error = this.errText(e);
++      } finally {
++        this.loading = false;
++      }
++    },
++
++    async install(item) {
++      this.error = null;
++      try {
++        await axios.post('/api/registry/install', {
++          type: item.type, name: item.name, version: item.version,
++        });
++        this.loadPlugins();
++      } catch (e) {
++        this.error = this.errText(e);
++      }
++    },
++
++    async scan() {
++      this.error = null;
++      this.loading = true;
++      try {
++        const { data } = await axios.get('/api/plugins/hardening/scan');
++        this.findings = data.findings || [];
++        this.issues = data.issues || 0;
++        this.scanned = true;
++      } catch (e) {
++        this.error = 'Plugin hardening chưa cài hoặc chưa chạy: ' + this.errText(e);
++      } finally {
++        this.loading = false;
++      }
++    },
++
++    async fix(item) {
++      this.error = null;
++      try {
++        await axios.post('/api/plugins/hardening/fix', { check_id: item.id });
++        this.scan();
++      } catch (e) {
++        this.error = this.errText(e);
++      }
++    },
++
++    errText(e) {
++      if (e && e.response && e.response.data && e.response.data.error) return e.response.data.error;
++      return (e && e.message) || 'lỗi không xác định';
++    },
++  },
++};
++</script>

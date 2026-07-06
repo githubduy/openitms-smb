@@ -54,6 +54,12 @@ echo "==> [5/5] login + gọi API động qua session thật"
 $CURL -c "$WORK/cookies" -H 'Content-Type: application/json' \
   -d '{"auth":"admin","password":"quickwin123"}' \
   "http://127.0.0.1:$PORT/api/auth/login" > /dev/null
+# GET /api/plugins — list endpoint (patch 0001, cho UI)
+plist=$($CURL -b "$WORK/cookies" "http://127.0.0.1:$PORT/api/plugins")
+echo "$plist" | grep -q '"name":"hello"' && echo "$plist" | grep -q '"state":"running"' \
+  || { echo "ERROR: GET /api/plugins trả: $plist"; tail -20 "$WORK/server.log"; exit 1; }
+echo "OK: list → $plist"
+
 body=$($CURL -b "$WORK/cookies" "http://127.0.0.1:$PORT/api/plugins/hello/info")
 echo "$body" | grep -q '"name":"hello"' || { echo "ERROR: /api/plugins/hello/info trả: $body"; tail -20 "$WORK/server.log"; exit 1; }
 echo "OK: info → $body"

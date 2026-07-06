@@ -34,6 +34,8 @@
 > | **P4-03** | ✅ SonarQube gate OK (đã làm) |
 > | **P4-04** | 🟡 release.yml + **installer/package.sh** (lắp bundle native: core+plugins+templates+licenses, tar.gz+sha256) + public-spec. Còn: fetch-deps (MariaDB/pwsh binary) + secret REGISTRY_PRIVATE_KEY |
 > | **P4-05** | 🟡 website/index.html landing (self-contained, Pages-ready). Còn: render docs/ → HTML + domain |
+> | **UI (P2-06/P3 UI)** | 🟡 **Patch 0006 — trang /openitms** (Vue): tab Plugins (GET /api/plugins list, e2e PASS) + Registry (search/install) + Hardening (scan/fix). Backend list endpoint thêm vào patch 0001. UI compile verify qua CI ui-build. Còn: Settings config UI |
+> | **deps.lock** | ✅ Pin thật MariaDB 11.4.4 LTS + pwsh 7.4.6 (sha256 verify) — fetch-deps tải được cho release |
 > | **P4-06** | 🟡 Diễn tập sync PASS (P0-06); Release v1.0 chờ đóng gói Phase 2 hoàn chỉnh |
 > | **P5-A/B/C** | ⬜ scaffolding doc xong (Windows installer, Live USB Alpine + rủi ro musl/pwsh, HA survey) — làm sau v1.0 |
 > | Còn lại | P2-03 pwsh/dist, P2-05 hardening, P2-06 settings UI, patch 0004/0005 hook |

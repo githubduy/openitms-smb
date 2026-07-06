@@ -46,12 +46,12 @@ func (o *Options) fill() {
 
 // InstanceState — trạng thái 1 plugin cho UI/API/test.
 type InstanceState struct {
-	Name     string
-	Version  string
-	State    string // running | failed | stopped
-	Pid      int
-	Restarts int
-	LastErr  string
+	Name     string `json:"name"`
+	Version  string `json:"version"`
+	State    string `json:"state"` // running | failed | stopped
+	Pid      int    `json:"pid"`
+	Restarts int    `json:"restarts"`
+	LastErr  string `json:"last_err,omitempty"`
 }
 
 type instance struct {

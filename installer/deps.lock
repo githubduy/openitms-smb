@@ -1,11 +1,5 @@
 # Dependency binary pin (name|url|sha256|extract-into). fetch-deps.sh verify sha256.
-# KHÔNG tự bump — đổi version phải có review (tránh supply-chain). sha256 điền khi chốt version.
+# KHÔNG tự bump — đổi version phải có review (tránh supply-chain).
 # GPL: MariaDB GPLv2 đóng gói binary độc lập, socket-only (mere aggregation — plan 2.2, licenses/).
-#
-# MariaDB LTS (11.4.x) — điền URL + sha256 chính thức từ mariadb.org khi chốt bản đóng gói:
-# mariadb|https://archive.mariadb.org/mariadb-11.4.x/bintar-linux-systemd-x86_64/mariadb-11.4.x-linux-systemd-x86_64.tar.gz|<sha256>|mariadb
-#
-# PowerShell Core (pwsh) — MIT, từ github.com/PowerShell/PowerShell releases:
-# pwsh|https://github.com/PowerShell/PowerShell/releases/download/v7.x.x/powershell-7.x.x-linux-x64.tar.gz|<sha256>|pwsh
-#
-# (rỗng lúc này → package.sh đóng gói core-only; điền khi chốt version cho v1.0)
+mariadb|https://archive.mariadb.org/mariadb-11.4.4/bintar-linux-systemd-x86_64/mariadb-11.4.4-linux-systemd-x86_64.tar.gz|c9f26fd8c37a97458310fb577d6cc3bce44cf048c0e6ce014ee6ae157ebc1697|mariadb
+pwsh|https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/powershell-7.4.6-linux-x64.tar.gz|6f6015203c47806c5cc444c19d8ed019695e610fbd948154264bf9ca8e157561|pwsh
