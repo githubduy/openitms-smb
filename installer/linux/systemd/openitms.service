@@ -1,0 +1,16 @@
+[Unit]
+Description=OpenITMS-SMB core (fork of Semaphore UI)
+After=openitms-db.service
+Requires=openitms-db.service
+
+[Service]
+Type=simple
+WorkingDirectory=@PREFIX@
+Environment=QUICKWIN_PLUGINS_DIR=@PREFIX@/plugins
+ExecStart=@PREFIX@/bin/@BIN@ server --config @PREFIX@/config/config.json
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

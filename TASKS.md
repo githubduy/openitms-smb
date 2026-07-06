@@ -15,9 +15,12 @@
 > | P1-04 | ✅ Plugin Manager: scan/validate/checksum/launch (go-plugin mTLS)/metadata-khớp-manifest/API động/health-restart backoff — integration test THẬT pass cả 4 (lifecycle, API 200/404/404, RunTask stream, kill→tự restart pid mới) |
 > | P1-05 | ✅ API động hoàn chỉnh: 200/401/403/404 test đủ (route require_admin thật trên hello), chịu webPath prefix. Permissions enum khai báo + enforce require_admin; enforce từng quyền tài nguyên (certs:read...) gắn khi có API core tương ứng (ghi ở spec plugin-manager) |
 > | P1-06 | ✅ **Patch 0001 hoàn thành đúng bộ-4** (patch + series + CHANGELOG + spec). Hook mỏng: 1 dòng router.go + 5 dòng go.mod + file mới quickwin_plugins.go (~60 dòng keo, go.sum generated). Verify: reset sạch → apply → build → E2E `plugin-through-core.sh` PASS (core load hello, 401 chưa login, login session thật → info/echo trả đúng caller admin); smoke không plugins vẫn PASS (degrade gracefully) |
-> | Còn lại | ⬜ chưa bắt đầu (kế tiếp: P1-07 branding — CHỜ TÊN, P1-08 config hardcode, P1-09 winrs-cert — cần Win11 lab) |
+> | P1-07 | 🟡 **Patch 0002 branding v1** (bộ-4 đủ): title + logo/favicon SVG + tên app i18n (5 lang) — chain 0001+0002 apply sạch + build PASS. Còn P1-07b: chuỗi i18n dài + About attribution + favicon.png — cần node/FULL_UI (CI) |
+> | P2-04 | ✅ Package `certstore` (nạp nóng .pem/.pfx, poll watcher, file rác an toàn) — 3 test PASS trên Windows. Wire vào winrs-cert ở P1-09 |
+> | P2-01/02 | 🟡 Installer Linux viết xong (install.sh idempotent + my.cnf socket-only + 2 systemd unit + uninstall) — syntax OK; còn fetch-mariadb + package.sh + **E2E VM offline** để đóng AC |
+> | Còn lại | ⬜ (kế tiếp: P1-08 config hardcode, P1-09 winrs-cert — cần Win11 lab, P2-03 pwsh/dist) |
 >
-> **Chờ user:** tạo repo GitHub (org/tên) + chốt tên sản phẩm chính thức.
+> **Chờ user:** tạo repo GitHub (org/URL) để push — tên đã chốt **OpenITMS-SMB** (ADR-0004).
 
 > Sinh từ `PLAN.md` (đã review 2026-07-05).
 > Guideline làm việc: `docs/L3-development/AI-ENGINEER-GUIDELINE.md`.

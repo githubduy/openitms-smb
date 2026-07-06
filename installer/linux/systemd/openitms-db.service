@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenITMS-SMB bundled MariaDB (socket-only)
+After=network.target
+
+[Service]
+Type=simple
+User=@DBUSER@
+ExecStart=@PREFIX@/mariadb/bin/mariadbd --defaults-file=@PREFIX@/my.cnf
+Restart=on-failure
+RestartSec=3
+# hardening
+ProtectSystem=full
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
