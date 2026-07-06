@@ -23,8 +23,8 @@ fi
 
 fail=0
 
-# identity đang cấu hình
-ident="$(git -C "$ROOT" config user.name; git -C "$ROOT" config user.email)"
+# identity đang cấu hình (CI runner có thể chưa set — không được làm chết script)
+ident="$( (git -C "$ROOT" config user.name || true; git -C "$ROOT" config user.email || true) )"
 if echo "$ident" | grep -qiE "$REGEX"; then
   echo "ERROR: git user.name/user.email chứa từ cấm — sửa: git config user.name/user.email (repo-local)" >&2
   fail=1
