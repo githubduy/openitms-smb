@@ -6,6 +6,7 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
     "grpcio>=1.60",
+    "grpcio-health-checking>=1.60",
     "protobuf>=4.25",
 ]
 

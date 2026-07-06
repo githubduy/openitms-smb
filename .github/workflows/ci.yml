@@ -119,7 +119,7 @@ jobs:
         with: { python-version: "3.12" }
       - name: Install grpcio + gen Python stubs
         run: |
-          pip install grpcio grpcio-tools
+          pip install grpcio grpcio-tools grpcio-health-checking
           scripts/gen-proto-py.sh
       - name: Go↔Python integration test
         env:

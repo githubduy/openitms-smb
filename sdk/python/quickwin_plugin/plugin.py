@@ -81,6 +81,17 @@ def serve(impl: Plugin):
 
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=8))
     pb_grpc.add_PluginServicer_to_server(_Servicer(impl), server)
+
+    # go-plugin gRPC client kiểm tra grpc.health.v1.Health khi handshake → phải phục vụ.
+    try:
+        from grpc_health.v1 import health, health_pb2, health_pb2_grpc
+        hsvc = health.HealthServicer()
+        health_pb2_grpc.add_HealthServicer_to_server(hsvc, server)
+        hsvc.set("", health_pb2.HealthCheckResponse.SERVING)
+        hsvc.set("plugin", health_pb2.HealthCheckResponse.SERVING)
+    except ImportError:
+        sys.stderr.write("cảnh báo: thiếu grpc_health — go-plugin handshake có thể fail\n")
+
     server.add_insecure_port(f"127.0.0.1:{port}")
     server.start()
 
