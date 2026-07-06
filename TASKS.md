@@ -26,7 +26,7 @@
 > | P4-03 | 🟡 **SonarQube self-host CHẠY THẬT** (2026-07-06): project `openitms-smb` mới (thay itdn-portal); gate riêng "OpenITMS-SMB Gate" khớp plan 9.4 (new_coverage≥70, 0 new_violations, dup<3) → **GATE OK** (coverage new 75.9%, 0 bug/vuln/hotspot, 5 smell complexity). Quét CHỈ code ta. `sonar-project.properties` public-safe + `scripts/sonar-scan.sh` (host/token qua env, `.scannerwork/`+coverage.out gitignored). Handler refactor 32→<15. Còn: gắn CI + fail-merge-when-red |
 > | **P3-01/02/03** | 🟡 Registry package + **patch 0005 hook core** XONG (search/install API, e2e registry-through-core PASS; ed25519 sign/verify/install/CLI). `public-spec.json` + registryctl build 5 template thật OK. Còn: UI trang Plugins + publish public lên Pages (release.yml sẵn, cần secret) |
 > | **P3-05** | ✅ 5 template preload (jea-winrs-setup pwsh + docker/odoo/mariadb/clickhouse bash) + CI shellcheck; guide + spec |
-> | **P3-06** | ✅ Python SDK + demo hello-py (handshake go-plugin + gRPC) + gen-proto-py + integration test (build tag) + CI job — chứng minh proto đa ngôn ngữ (verify CI, pip bị proxy chặn local) |
+> | **P3-06** | ✅ **Python SDK CHẠY THẬT trên CI** — Go core launch plugin Python qua gRPC (handshake + grpc.health.v1 + echo trả đúng UTF-8). Chứng minh hợp đồng .proto đa ngôn ngữ. CI bắt 3 bug thật (exec bit, schema entrypoint python, health service) mà Windows dev không thấy |
 > | **P3-04** | ⬜ Endpoint Script Manager (patch 0004) — cần core patch + UI |
 > | **P4-01** | ✅ ai-triage.yml (keyword label + hỏi thiếu info); AI-dev đầy đủ cần self-hosted runner + API key (maintainer) |
 > | **P4-02** | ✅ 6 AI Skills (`.claude/skills/`: dev-core-patch, dev-plugin, dev-registry, dev-template, sync-upstream, release) |
