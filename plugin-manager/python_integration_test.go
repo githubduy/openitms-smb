@@ -7,6 +7,7 @@ package pluginmanager
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -62,10 +63,12 @@ func TestPython_HelloPluginThroughManager(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("echo status %d", resp.StatusCode)
 	}
-	var body [512]byte
-	n, _ := resp.Body.Read(body[:])
-	s := string(body[:n])
-	if !strings.Contains(s, "xin chào python") || !strings.Contains(s, `"lang":"python"`) {
-		t.Fatalf("python echo sai: %s", s)
+	// parse JSON (robust với formatting/escaping của json.dumps) thay vì string match
+	var got struct{ Echo, Caller, Lang string }
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("decode echo response: %v", err)
+	}
+	if got.Echo != "xin chào python" || got.Lang != "python" || got.Caller != "tester" {
+		t.Fatalf("python echo sai: %+v", got)
 	}
 }

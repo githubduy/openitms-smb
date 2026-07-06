@@ -22,18 +22,22 @@ class HelloPy(Plugin):
 
     def handle_request(self, req):
         if req.path == "echo":
-            body = json.dumps({"echo": req.body.decode("utf-8", "replace"),
-                               "caller": req.caller.username, "lang": "python"})
-            return _json(200, body)
+            return _json(200, _dump({"echo": req.body.decode("utf-8", "replace"),
+                                     "caller": req.caller.username, "lang": "python"}))
         if req.path == "info":
-            return _json(200, json.dumps({"name": "hello-py", "version": VERSION, "lang": "python"}))
-        return _json(404, json.dumps({"error": "unknown route"}))
+            return _json(200, _dump({"name": "hello-py", "version": VERSION, "lang": "python"}))
+        return _json(404, _dump({"error": "unknown route"}))
 
     def run_task(self, spec):
         yield pb.TaskEvent(task_id=spec.task_id, status=pb.TASK_STATUS_RUNNING)
         yield pb.TaskEvent(task_id=spec.task_id, log_line="hello-py task running")
         yield pb.TaskEvent(task_id=spec.task_id,
                            result=pb.TaskResult(status=pb.TASK_STATUS_SUCCESS, message="done"))
+
+
+def _dump(obj):
+    # UTF-8 giữ nguyên (không escape \uXXXX), gọn — như JSON API thật.
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
 
 
 def _json(status, body):
