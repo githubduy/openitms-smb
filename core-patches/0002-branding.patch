@@ -1,0 +1,175 @@
+# PATCH: 0002-branding
+# WHY: MIT khong cap quyen trademark (plan 2.3) — phai thay ten/logo "Semaphore"
+#      bang "OpenITMS-SMB" (ADR-0004 #1). Patch chi dung ASSET-REPLACE + string
+#      literal thay the, KHONG dong cau truc code — de rebase: neu conflict, chi can
+#      ap dung lai cung phep the (title index.html, logo.svg, favicon.svg,
+#      key i18n ansibleSemaphore trong moi file lang/*.js).
+# WHAT: web/public/index.html <title>; web/src/assets/logo.svg + web/public/favicon.svg
+#      (SVG text thay bang logo OpenITMS-SMB); web/src/lang/{de,en,nl,uk,zh_tw}.js key
+#      ansibleSemaphore -> 'OpenITMS-SMB'. v1 chua gom: favicon.png (binary),
+#      cac chuoi i18n mo ta dai, trang About attribution — lam khi co node/FULL_UI (P1-07b).
+# SPEC: docs/L2-specs/core-patches/0002-branding.md
+# BASELINE: v2.18.16
+#
+diff --git a/web/public/favicon.svg b/web/public/favicon.svg
+index f974add..35ab9f5 100644
+--- a/web/public/favicon.svg
++++ b/web/public/favicon.svg
+@@ -1,71 +1 @@
+-<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+-<!-- Created with Inkscape (http://www.inkscape.org/) -->
+-
+-<svg
+-   width="50mm"
+-   height="50mm"
+-   viewBox="0 0 50 50"
+-   version="1.1"
+-   id="svg5"
+-   inkscape:version="1.1.1 (3bf5ae0d25, 2021-09-20)"
+-   sodipodi:docname="favicon.svg"
+-   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+-   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+-   xmlns="http://www.w3.org/2000/svg"
+-   xmlns:svg="http://www.w3.org/2000/svg">
+-  <sodipodi:namedview
+-     id="namedview7"
+-     pagecolor="#ffffff"
+-     bordercolor="#666666"
+-     borderopacity="1.0"
+-     inkscape:pageshadow="2"
+-     inkscape:pageopacity="0.0"
+-     inkscape:pagecheckerboard="0"
+-     inkscape:document-units="mm"
+-     showgrid="false"
+-     width="50mm"
+-     inkscape:zoom="1.2648958"
+-     inkscape:cx="8.3010791"
+-     inkscape:cy="120.95858"
+-     inkscape:window-width="1280"
+-     inkscape:window-height="730"
+-     inkscape:window-x="-6"
+-     inkscape:window-y="-6"
+-     inkscape:window-maximized="1"
+-     inkscape:current-layer="layer1" />
+-  <defs
+-     id="defs2" />
+-  <g
+-     inkscape:label="Layer 1"
+-     inkscape:groupmode="layer"
+-     id="layer1">
+-    <g
+-       id="g2471"
+-       transform="matrix(1.1749537,0,0,1.1749537,-9.0335493,-9.3741995)">
+-      <circle
+-         style="fill:#005c63;fill-opacity:1;stroke:none;stroke-width:0.497742"
+-         id="path860"
+-         cx="28.965864"
+-         cy="29.255791"
+-         r="21.135355" />
+-      <circle
+-         style="fill:#ffffff;fill-opacity:1;stroke:none;stroke-width:0.547246"
+-         id="path966"
+-         cx="28.973768"
+-         cy="16.898766"
+-         r="4.2353864" />
+-      <circle
+-         style="fill:#ffffff;fill-opacity:1;stroke:none;stroke-width:0.547246"
+-         id="circle1348"
+-         cx="28.973768"
+-         cy="29.598763"
+-         r="4.2353864" />
+-      <circle
+-         style="fill:#ffffff;fill-opacity:1;stroke:none;stroke-width:0.547246"
+-         id="circle1350"
+-         cx="28.973768"
+-         cy="42.298737"
+-         r="4.2353864" />
+-    </g>
+-  </g>
+-</svg>
++<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect x="10" y="10" width="180" height="180" rx="28" fill="#1565c0"/><path d="M55 130V70l45 34 45-34v60" fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><circle cx="100" cy="152" r="10" fill="#fff"/></svg>
+diff --git a/web/public/index.html b/web/public/index.html
+index 91c69b0..d3f1740 100644
+--- a/web/public/index.html
++++ b/web/public/index.html
+@@ -6,7 +6,7 @@
+     <meta http-equiv="X-UA-Compatible" content="IE=edge">
+     <meta name="viewport" content="width=device-width,initial-scale=1.0">
+     <link rel="icon" href="favicon.png">
+-    <title>Dashboard - Semaphore UI</title>
++    <title>OpenITMS-SMB</title>
+   </head>
+   <body>
+     <noscript>
+diff --git a/web/src/assets/logo.svg b/web/src/assets/logo.svg
+index 145b6d1..7b1e2c1 100644
+--- a/web/src/assets/logo.svg
++++ b/web/src/assets/logo.svg
+@@ -1 +1 @@
+-<svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 87.5 100"><defs><style>.cls-1{fill:#1697f6;}.cls-2{fill:#7bc6ff;}.cls-3{fill:#1867c0;}.cls-4{fill:#aeddff;}</style></defs><title>Artboard 46</title><polyline class="cls-1" points="43.75 0 23.31 0 43.75 48.32"/><polygon class="cls-2" points="43.75 62.5 43.75 100 0 14.58 22.92 14.58 43.75 62.5"/><polyline class="cls-3" points="43.75 0 64.19 0 43.75 48.32"/><polygon class="cls-4" points="64.58 14.58 87.5 14.58 43.75 100 43.75 62.5 64.58 14.58"/></svg>
++<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="OpenITMS-SMB"><rect x="10" y="10" width="180" height="180" rx="28" fill="#1565c0"/><path d="M55 130V70l45 34 45-34v60" fill="none" stroke="#fff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><circle cx="100" cy="152" r="10" fill="#fff"/></svg>
+diff --git a/web/src/lang/de.js b/web/src/lang/de.js
+index e415ac3..4c4269c 100644
+--- a/web/src/lang/de.js
++++ b/web/src/lang/de.js
+@@ -79,7 +79,7 @@ export default {
+   enterEnvJson: 'Env JSON eingeben...',
+   environmentAndExtraVariablesMustBeValidJsonExample: 'Variablen müssen gültiges JSON sein. Beispiel:',
+   dashboard2: 'Dashboard',
+-  ansibleSemaphore: 'Semaphore UI',
++  ansibleSemaphore: 'OpenITMS-SMB',
+   wereSorryButHtmlwebpackpluginoptionstitleDoesntWor:
+     'JavaScript ist deaktiviert. Bitte aktivieren Sie es für die vollständige Funktionalität.',
+   deleteInventory: 'Inventory löschen',
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index 7394196..690cf04 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -88,7 +88,7 @@ export default {
+   environmentAndExtraVariablesMustBeValidJsonExample:
+     'Environment and extra variables must be valid JSON. Example:',
+   dashboard2: 'Dashboard',
+-  ansibleSemaphore: 'Semaphore UI',
++  ansibleSemaphore: 'OpenITMS-SMB',
+   wereSorryButHtmlwebpackpluginoptionstitleDoesntWor:
+     "We're sorry but <%= htmlWebpackPlugin.options.title %> doesn't work properly without JavaScript enabled. Please enable it to continue.",
+   deleteInventory: 'Delete inventory',
+diff --git a/web/src/lang/nl.js b/web/src/lang/nl.js
+index 369d474..483af20 100644
+--- a/web/src/lang/nl.js
++++ b/web/src/lang/nl.js
+@@ -78,7 +78,7 @@ export default {
+   enterEnvJson: 'Voer env JSON in...',
+   environmentAndExtraVariablesMustBeValidJsonExample: 'Omgevings- en extra variabelen moeten geldige JSON zijn. Voorbeeld:',
+   dashboard2: 'Dashboard',
+-  ansibleSemaphore: 'Semaphore UI',
++  ansibleSemaphore: 'OpenITMS-SMB',
+   wereSorryButHtmlwebpackpluginoptionstitleDoesntWor: 'Het spijt ons, maar <%= htmlWebpackPlugin.options.title %> werkt niet goed zonder ingeschakelde JavaScript. Schakel het in om door te gaan.',
+   deleteInventory: 'Verwijder inventaris',
+   newInventory: 'Nieuwe Inventaris',
+diff --git a/web/src/lang/uk.js b/web/src/lang/uk.js
+index 65d4c43..efc2275 100644
+--- a/web/src/lang/uk.js
++++ b/web/src/lang/uk.js
+@@ -79,7 +79,7 @@ export default {
+   enterEnvJson: 'Введіть env JSON...',
+   environmentAndExtraVariablesMustBeValidJsonExample: 'Змінні середовища та додаткові змінні повинні бути валідним JSON. Приклад:',
+   dashboard2: 'Панель керування',
+-  ansibleSemaphore: 'Semaphore UI',
++  ansibleSemaphore: 'OpenITMS-SMB',
+   wereSorryButHtmlwebpackpluginoptionstitleDoesntWor: 'Вибачте, але <%= htmlWebpackPlugin.options.title %> не працює належним чином без JavaScript. Будь ласка, увімкніть його.',
+   deleteInventory: 'Видалити інвентар',
+   newInventory: 'Новий інвентар',
+diff --git a/web/src/lang/zh_tw.js b/web/src/lang/zh_tw.js
+index 523984b..b6d95f8 100644
+--- a/web/src/lang/zh_tw.js
++++ b/web/src/lang/zh_tw.js
+@@ -79,7 +79,7 @@ export default {
+   enterEnvJson: '輸入環境變數 JSON...',
+   environmentAndExtraVariablesMustBeValidJsonExample: '環境變數和額外變數必須是有效的 JSON。範例：',
+   dashboard2: '儀表板',
+-  ansibleSemaphore: 'Semaphore UI',
++  ansibleSemaphore: 'OpenITMS-SMB',
+   wereSorryButHtmlwebpackpluginoptionstitleDoesntWor: '很抱歉，<%= htmlWebpackPlugin.options.title %> 需要啟用 JavaScript 才能正常運作。請啟用後再繼續。',
+   deleteInventory: '刪除清單',
+   newInventory: '新增清單',

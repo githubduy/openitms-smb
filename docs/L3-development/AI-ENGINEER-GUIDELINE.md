@@ -1,4 +1,4 @@
-# GUIDELINE CHO AI ENGINEER — Tham gia dự án QuickWin (fork Semaphore UI)
+# GUIDELINE CHO AI ENGINEER — Tham gia dự án OpenITMS-SMB (fork Semaphore UI)
 
 > Đọc file này TRƯỚC KHI làm bất cứ việc gì. Đây là tài liệu onboarding tự chứa (self-contained):
 > đọc xong là đủ ngữ cảnh để nhận task và làm việc đúng quy trình.
@@ -9,7 +9,7 @@
 
 ## 1. Dự án này là gì (30 giây)
 
-**QuickWin** = fork của [Semaphore UI](https://github.com/semaphoreui/semaphore) (Go + Vue, MIT)
+**OpenITMS-SMB** = fork của [Semaphore UI](https://github.com/semaphoreui/semaphore) (Go + Vue, MIT)
 thành nền tảng quản lý hạ tầng IT cho doanh nghiệp SMB. Khác biệt cốt lõi so với upstream:
 
 1. **Core sạch** — sửa upstream tối thiểu, mọi thay đổi là patch script-hóa để merge upstream nhanh.

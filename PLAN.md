@@ -1,6 +1,6 @@
 # KẾ HOẠCH CHI TIẾT — Fork Semaphore UI thành nền tảng quản lý hạ tầng IT cho SMB
 
-> Tên mã tạm thời: **QuickWin** (đổi tên được — xem mục 2.3 về trademark).
+> Tên sản phẩm: **OpenITMS-SMB** (chốt 2026-07-06, đã kiểm tra trùng tên/trademark — ADR-0004).
 > Upstream: [semaphoreui/semaphore](https://github.com/semaphoreui/semaphore) — MIT License.
 > Ngày lập: 2026-07-04. Trạng thái: DRAFT v1.
 
@@ -9,7 +9,7 @@
 ## 0. PRIMARY PLAN — Tóm tắt 1 trang (tự chứa, cắt riêng gửi được)
 
 ### Sản phẩm là gì?
-**QuickWin** (tên tạm) — nền tảng mã nguồn mở giúp doanh nghiệp **SMB quản lý hạ tầng IT**:
+**OpenITMS-SMB** — nền tảng mã nguồn mở giúp doanh nghiệp **SMB quản lý hạ tầng IT**:
 tự động hóa triển khai, chạy lệnh/script xuống máy trạm Windows 11 và server Linux từ một
 Web UI duy nhất. Xây dựng bằng cách **fork [Semaphore UI](https://github.com/semaphoreui/semaphore)**
 (Go + Vue, giấy phép MIT — được phép fork thương mại/cộng đồng hợp pháp).
@@ -58,7 +58,7 @@ và **MariaDB (GPLv2) đóng gói dạng binary độc lập giao tiếp qua soc
 - ✅ **Phase 1 lõi plugin xong**: proto v1 + SDK Go + Plugin Manager + plugin hello —
   integration test thật pass (API động, stream, tự restart). Còn: hook core (patch 0001),
   branding, config, winrs-cert.
-- ⏳ Chờ quyết định: **tên sản phẩm chính thức + domain** ("QuickWin" là tên tạm) + **repo GitHub** để push.
+- ✅ Tên chốt: **OpenITMS-SMB** (2026-07-06). ⏳ Còn chờ: **repo GitHub** (org/URL) để push + đăng ký domain.
 
 > *Chi tiết từng mảng: mục 2 (pháp lý) · 3–5 (kiến trúc & plugin) · 7 (đóng gói) · 9 (quy trình
 > dev & publish) · 10 (roadmap) · 12 (hệ thống tài liệu) — trong tài liệu này.*
@@ -348,7 +348,7 @@ Preload trên UI, chạy "1 click":
 1. **JEA/WinRS Automation** — kịch bản chuẩn hóa xử lý certificate để gọi PowerShell
    xuống Windows 11 (enroll cert → cấu hình WinRM HTTPS cert-auth → JEA endpoint → test).
 2. **App Deployment** — template Ansible/Bash (lưu ý: Docker ở đây là thứ template
-   cài **lên máy client đích** theo yêu cầu người dùng — bản thân QuickWin không dùng Docker):
+   cài **lên máy client đích** theo yêu cầu người dùng — bản thân OpenITMS-SMB không dùng Docker):
    - Docker cluster setup (host chuẩn bị + compose)
    - Odoo one-click
    - MariaDB standalone
@@ -411,7 +411,7 @@ là bản "thực thi được" của từng playbook trong guideline đó.
 |---|---|---|
 | **GitHub** | **PRIMARY** — source of truth, Issues, PR, CI (Actions), Releases, Pages (registry public + website) | Cộng đồng lớn nhất → nhận contributor dễ nhất; Issue Forms + Actions + Pages là hạ tầng miễn phí toàn bộ pipeline AI-dev của ta |
 | **Codeberg (Forgejo)** | **MIRROR** — push-mirror tự động, read-only | Nền tảng đang lên đáng chú ý nhất: phi lợi nhuận EU, chạy Forgejo (fork cộng đồng của Gitea, đang phát triển federation ForgeFed); chống phụ thuộc 1 nhà cung cấp; cộng đồng FOSS thuần ưa chuộng |
-| **Forgejo/Gitea self-host** | TÙY CHỌN — bản sao nội bộ cho khách air-gapped | Nhẹ (1 binary Go — cùng triết lý QuickWin), khách SMB có thể tự host mirror + registry local |
+| **Forgejo/Gitea self-host** | TÙY CHỌN — bản sao nội bộ cho khách air-gapped | Nhẹ (1 binary Go — cùng triết lý OpenITMS-SMB), khách SMB có thể tự host mirror + registry local |
 
 Các lựa chọn khác đã cân nhắc và KHÔNG chọn làm primary:
 - **GitLab**: đầy đủ nhưng nặng, cộng đồng OSS drive-by contributor kém hơn GitHub.
@@ -630,4 +630,4 @@ docs/
 ### CÒN MỞ
 
 1. **Tên sản phẩm chính thức + domain** — chặn patch branding (P1-07) và URL registry public.
-   "QuickWin" vẫn là tên tạm cho đến khi kiểm tra trademark/domain và chốt.
+   ĐÃ CHỐT 2026-07-06: **OpenITMS-SMB** (kiểm tra: không có project/trademark active trùng "openitms"; lưu ý "ITMS™" của WidePoint — xem ADR-0004).

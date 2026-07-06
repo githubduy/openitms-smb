@@ -8,7 +8,7 @@ related-code: []
 
 # Tầm nhìn
 
-**QuickWin** (tên tạm) — nền tảng mã nguồn mở cho **SMB quản lý hạ tầng IT**: tự động hóa
+**OpenITMS-SMB** — nền tảng mã nguồn mở cho **SMB quản lý hạ tầng IT**: tự động hóa
 triển khai và chạy lệnh/script xuống Windows 11 + Linux từ một Web UI, fork từ
 [Semaphore UI](https://github.com/semaphoreui/semaphore) (MIT).
 

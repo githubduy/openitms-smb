@@ -1,4 +1,4 @@
-# QuickWin *(tên tạm — sẽ rebrand)*
+# OpenITMS-SMB
 
 Nền tảng mã nguồn mở cho **SMB quản lý hạ tầng IT**: tự động hóa triển khai, chạy lệnh/script
 xuống **Windows 11 + Linux** từ một Web UI. Fork của

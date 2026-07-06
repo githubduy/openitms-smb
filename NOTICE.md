@@ -1,13 +1,13 @@
 # NOTICE
 
-**QuickWin** (tên tạm — sẽ rebrand) is a fork of **Semaphore UI**.
+**OpenITMS-SMB** (Open IT Management System for SMB) is a fork of **Semaphore UI**.
 
 - Upstream: https://github.com/semaphoreui/semaphore
 - Upstream copyright: © 2021 Denis Gukov; © 2014–2021 Castaway Labs LLC
 - Upstream license: MIT (full text: [LICENSE-SEMAPHORE](LICENSE-SEMAPHORE))
 - Baseline pinned: tag `v2.18.16` (submodule `upstream/`)
 
-Modifications and additional components © 2026 QuickWin Project contributors,
+Modifications and additional components © 2026 OpenITMS-SMB Project contributors,
 licensed under MIT ([LICENSE](LICENSE)).
 
 "Semaphore" and the Semaphore UI logo are property of their respective owners.

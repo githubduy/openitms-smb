@@ -1,9 +1,9 @@
-# BACKLOG CHI TIẾT — QuickWin (fork Semaphore UI)
+# BACKLOG CHI TIẾT — OpenITMS-SMB (fork Semaphore UI)
 
 > ## 📌 TRẠNG THÁI (cập nhật 2026-07-05)
 > | Task | Trạng thái |
 > |---|---|
-> | P0-01 | 🟡 4/5 chốt (ADR-0004) — còn tên sản phẩm |
+> | P0-01 | ✅ **5/5 chốt** — tên sản phẩm: **OpenITMS-SMB** (2026-07-06, đã check trademark/GitHub — ADR-0004). Internal identifiers (quickwin.dev, QUICKWIN_*) rename 1 commit khi tạo org GitHub |
 > | P0-02, 03, 04, 05 | ✅ xong — repo + submodule v2.18.16 + Go 1.24.6 trong `./Go/` + patch system test PASS; binary `quickwin-dev-sem2.18.16` build OK trên Windows (Linux verify khi CI chạy) |
 > | P0-06 | 🟡 script sync-upstream có, chưa diễn tập với tag thật |
 > | P0-07, 09, 10, 12 | ✅ xong — license/NOTICE + docs L0/L1 + ADR 0001–0004 + guideline + OWNERS.yaml + governance/issue forms |
@@ -37,7 +37,7 @@
 ~~5 quyết định~~ → **4/5 ĐÃ CHỐT 2026-07-05** (xem plan mục 13): baseline = tag stable mới nhất;
 registry public = GitHub Pages; SonarQube = **self-host**; Live USB = **Alpine** (control từng package,
 lưu ý musl). **CÒN LẠI 1:** tên sản phẩm chính thức + domain (kiểm tra trademark/domain trước khi chốt;
-"QuickWin" là tên tạm — chặn P1-07 branding).
+"OpenITMS-SMB" là tên tạm — chặn P1-07 branding).
 **AC:** toàn bộ quyết định (4 đã chốt + tên) ghi thành `docs/L1-architecture/adr/ADR-0004-initial-decisions.md`, status approved.
 
 ### P0-02 · Khởi tạo repo + cấu trúc thư mục 🤖+👤 · S · Deps: P0-01
