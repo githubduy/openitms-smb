@@ -34,6 +34,7 @@ Lộ trình: Linux (v1.0) → Windows → Live USB. Kênh thực thi xuống cli
 | 7 | **AI không tự merge PR, không tự tạo ADR có hiệu lực** | Gặp quyết định kiến trúc chưa có ADR → DỪNG, mở issue hỏi maintainer |
 | 8 | **PR đổi behavior phải cập nhật docs L2 tương ứng** (mapping trong `docs/L2-specs/OWNERS.yaml`) | Docs-as-code là hợp đồng, CI enforce |
 | 9 | **AI chỉ push branch `ai/*` — KHÔNG BAO GIỜ push `main`, tạo tag, tạo release, hay commit secrets** (key, cert thật, `.pfx/.pem/.key`, `servers.json`, IP nội bộ) | Tag ký số là trigger release, chỉ maintainer tạo. Lỡ push secret = ĐÃ LỘ → báo ngay để rotate, không chỉ xóa commit. Chi tiết: plan mục 9.5 |
+| 10 | **Identity hygiene**: trước khi commit, verify `git config user.name/user.email` (repo-local) là danh tính trung tính của dự án; không để tên người/công ty/domain nội bộ lọt vào file, commit message, author, Signed-off-by. Hook pre-commit + CI `banned-words` cưỡng chế (danh sách từ cấm ở `.git/banned-words` — untracked, KHÔNG commit nó vào repo) | Repo là public — mọi metadata git đều bị index vĩnh viễn. Chi tiết: `publishing-policy.md` |
 
 ---
 

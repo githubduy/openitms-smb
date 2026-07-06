@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# pre-commit hook — bật bằng: git config core.hooksPath .githooks
+# 1. Chặn từ khóa cá nhân/công ty (danh sách ở .git/banned-words — KHÔNG track)
+# 2. Chặn sửa trực tiếp upstream/ (luật #1 guideline)
+set -e
+ROOT="$(git rev-parse --show-toplevel)"
+
+"$ROOT/scripts/check-banned-words.sh" --staged
+
+if git diff --cached --name-only | grep -q '^upstream/'; then
+  # gitlink update (submodule bump khi sync) là hợp lệ; sửa FILE bên trong là không
+  if git diff --cached --name-only | grep -qE '^upstream/.'; then
+    echo "ERROR: đang commit thay đổi BÊN TRONG upstream/ — dùng core-patches/ (luật #1)." >&2
+    exit 1
+  fi
+fi
