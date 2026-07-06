@@ -1,14 +1,12 @@
 version: v2
+# Local plugins — cài bằng: go install google.golang.org/protobuf/cmd/protoc-gen-go
+#                        + google.golang.org/grpc/cmd/protoc-gen-go-grpc (xem scripts/gen-proto.sh)
 plugins:
-  # Go stubs → plugin-manager + quickwin-plugin-sdk-go
-  - remote: buf.build/protocolbuffers/go
+  # Go stubs → module quickwin.dev/proto (proto/gen/go)
+  - local: protoc-gen-go
     out: gen/go
     opt: paths=source_relative
-  - remote: buf.build/grpc/go
+  - local: protoc-gen-go-grpc
     out: gen/go
     opt: paths=source_relative
-  # Python stubs → quickwin-plugin-sdk-py
-  - remote: buf.build/protocolbuffers/python
-    out: gen/python
-  - remote: buf.build/grpc/python
-    out: gen/python
+  # Python stubs (SDK Python — Phase 3, P3-06) sinh bằng grpcio-tools khi tới lúc

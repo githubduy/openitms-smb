@@ -7,7 +7,8 @@ GO="$ROOT/Go/go/bin/go"
 [ -x "$GO" ] || GO="$ROOT/Go/go/bin/go.exe"
 [ -x "$GO" ] || { echo "ERROR: chưa có toolchain — chạy scripts/setup-toolchain.sh" >&2; exit 1; }
 
-for mod in plugin-manager plugins/winrs-cert plugins/hardening registry; do
+for mod in plugin-manager sdk/go registry plugins/*/; do
+  mod="${mod%/}"
   if [ -f "$ROOT/$mod/go.mod" ]; then
     echo "==> test $mod"
     (cd "$ROOT/$mod" && "$GO" test ./...)

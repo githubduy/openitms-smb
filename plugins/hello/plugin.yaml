@@ -1,0 +1,16 @@
+name: hello
+version: 0.1.0
+license: MIT
+description: Minimal example plugin (echo + demo task) — also the integration-test fixture
+protocol_version: 1
+entrypoint:
+  linux-amd64: hello
+  windows-amd64: hello.exe
+routes:
+  - method: POST
+    path: echo
+    description: Echo request body back
+  - method: GET
+    path: info
+    description: Plugin info
+permissions: []

@@ -9,8 +9,11 @@
 > | P0-07, 09, 10, 12 | ✅ xong — license/NOTICE + docs L0/L1 + ADR 0001–0004 + guideline + OWNERS.yaml + governance/issue forms |
 > | P0-08, 13 | 🟡 file CI + policy đã viết — cần push GitHub để chạy thật + bật push protection/mirror |
 > | P0-11 | ✅ testing-strategy.md + `tests/e2e/smoke.sh` chạy PASS thật (server bolt + /api/ping + UI 200); tầng 3-4 dựng ở P1/P2 |
-> | P1-01 | 🟡 schema `plugin.schema.json` + spec + example xong — validator Go (bắt 6 case lỗi) làm cùng P1-04 |
-> | P1-02 | 🟡 `plugin.proto` v1 + buf.yaml/buf.gen.yaml + CI job buf xong — `buf lint/breaking` verify khi CI chạy trên GitHub |
+> | P1-01 | ✅ schema + spec + validator Go (jsonschema embedded) — test bắt đủ 6 case lỗi PASS |
+> | P1-02 | ✅ proto v1 + buf (lint except 3 naming rule có chủ đích) + stubs generate (`scripts/gen-proto.sh`) — `buf breaking` chạy khi CI lên GitHub |
+> | P1-03 | ✅ SDK Go (`sdk/go/`: Serve/Plugin interface/GRPCPlugin/TaskEmitter) + plugin `hello` < 100 dòng — AC đạt |
+> | P1-04 | ✅ Plugin Manager: scan/validate/checksum/launch (go-plugin mTLS)/metadata-khớp-manifest/API động/health-restart backoff — integration test THẬT pass cả 4 (lifecycle, API 200/404/404, RunTask stream, kill→tự restart pid mới) |
+> | P1-05 | 🟡 API động đã có trong P1-04 (`Manager.Handler`) — còn thiếu: enforce permissions từng quyền + mount vào core (patch 0001, P1-06) |
 > | Còn lại | ⬜ chưa bắt đầu |
 >
 > **Chờ user:** tạo repo GitHub (org/tên) + chốt tên sản phẩm chính thức.

@@ -5,7 +5,7 @@ version: 1
 rules:
   - spec: docs/L2-specs/plugin-manager.md
     paths: ["plugin-manager/**"]
-    status: planned          # Phase 1
+    status: active
   - spec: docs/L2-specs/plugin-manifest.md
     paths: ["plugin-manager/schema/**"]
     status: active
