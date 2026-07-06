@@ -91,17 +91,17 @@ MIT chỉ yêu cầu **một** điều khi phân phối (source hoặc binary):
 > Giữ nguyên **copyright notice + toàn văn MIT license** của Semaphore trong mọi bản phân phối.
 
 Checklist thực thi:
-- [ ] Giữ file `LICENSE` gốc của Semaphore, KHÔNG xóa/sửa dòng copyright của tác giả gốc
-      (`Copyright (c) ... Denis Gukov / Semaphore UI authors ...`).
-- [ ] Thêm license của mình thành file riêng, ví dụ cấu trúc:
+- [x] Giữ file `LICENSE` gốc của Semaphore, KHÔNG xóa/sửa dòng copyright của tác giả gốc
+      (✔ `LICENSE-SEMAPHORE` nguyên văn, copyright Denis Gukov/Castaway Labs giữ nguyên).
+- [x] Thêm license của mình thành file riêng (✔ `LICENSE` + `NOTICE.md` đã có trong repo), cấu trúc:
   ```
   LICENSE                  ← MIT của fork (copyright của ta, cho phần code mới)
   LICENSE-SEMAPHORE        ← MIT gốc của Semaphore, nguyên văn
   NOTICE.md                ← "This product is a fork of Semaphore UI (https://github.com/semaphoreui/semaphore), © Semaphore UI authors, MIT License. Modifications © 2026 <ta>."
   ```
 - [ ] Trong bộ cài binary: nhúng thư mục `licenses/` chứa MIT gốc + license mọi dependency
-      (dùng `go-licenses report ./... > THIRD_PARTY_LICENSES.md` trong CI).
-- [ ] Trang "About" trên UI hiển thị attribution: "Based on Semaphore UI (MIT)".
+      (dùng `go-licenses report ./... > THIRD_PARTY_LICENSES.md` trong CI). *(CI job đã viết — chạy ở Phase 2 khi đóng gói)*
+- [ ] Trang "About" trên UI hiển thị attribution: "Based on Semaphore UI (MIT)". *(thuộc patch 0002 branding)*
 
 ### 2.2 Dependency có license KHÁC MIT — cần xử lý riêng khi ĐÓNG GÓI
 
