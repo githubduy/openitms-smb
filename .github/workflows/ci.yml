@@ -94,6 +94,18 @@ jobs:
       - run: tests/e2e/smoke.sh
       - run: tests/e2e/plugin-through-core.sh
 
+  templates-lint:
+    # P3-05: lint playbook templates (shellcheck cho .sh; PSScriptAnalyzer/ansible-lint sau)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck templates + installer + scripts
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          find templates installer scripts tests -name '*.sh' -print0 | xargs -0 shellcheck -S warning || true
+          # fail chỉ trên lỗi nghiêm trọng (severity error)
+          find templates installer scripts tests -name '*.sh' -print0 | xargs -0 shellcheck -S error
+
   python-plugin:
     # P3-06: chứng minh hợp đồng .proto đa ngôn ngữ — Python plugin qua Plugin Manager
     runs-on: ubuntu-latest

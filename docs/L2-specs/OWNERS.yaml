@@ -24,6 +24,9 @@ rules:
   - spec: docs/L2-specs/plugins-winrs-cert.md
     paths: ["plugins/winrs-cert/**"]
     status: active
+  - spec: docs/L3-development/template-authoring-guide.md
+    paths: ["templates/**"]
+    status: active
   - spec: docs/L2-specs/core-patches/   # thư mục: mỗi patch NNNN-*.patch phải có NNNN-*.md
     paths: ["core-patches/*.patch"]
     match: per-file          # bộ-4 enforce

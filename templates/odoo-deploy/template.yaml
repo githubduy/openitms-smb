@@ -1,0 +1,11 @@
+name: odoo-deploy
+version: 0.1.0
+type: template
+license: MIT
+description: Triển khai Odoo + PostgreSQL bằng docker compose (1-click) lên host đã có Docker.
+runner: bash
+category: app-deployment
+inputs:
+  - { name: odoo_version, label: Odoo version, type: string, default: "17" }
+  - { name: admin_password, label: Master admin password, type: string, required: true }
+entrypoint: deploy.sh

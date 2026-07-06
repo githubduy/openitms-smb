@@ -1,0 +1,11 @@
+name: mariadb-standalone
+version: 0.1.0
+type: template
+license: MIT
+description: Triển khai MariaDB standalone (docker compose) lên host đích.
+runner: bash
+category: app-deployment
+inputs:
+  - { name: root_password, label: MariaDB root password, type: string, required: true }
+  - { name: version, label: MariaDB version, type: string, default: "11.4" }
+entrypoint: deploy.sh

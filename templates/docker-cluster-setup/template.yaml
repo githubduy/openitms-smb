@@ -1,0 +1,13 @@
+name: docker-cluster-setup
+version: 0.1.0
+type: template
+license: MIT
+description: Cài Docker Engine + compose plugin lên host Linux đích (chuẩn bị chạy app).
+runner: bash
+category: app-deployment
+inputs:
+  - name: target_host
+    label: Host Linux đích (SSH)
+    type: string
+    required: true
+entrypoint: install-docker.sh

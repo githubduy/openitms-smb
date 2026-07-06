@@ -1,0 +1,23 @@
+name: jea-winrs-setup
+version: 0.1.0
+type: template
+license: MIT
+description: >
+  Chuẩn hóa Windows 11 để nhận lệnh qua WinRS certificate auth: enroll cert,
+  bật WinRM HTTPS + Certificate auth, map cert→user (JEA), test kết nối.
+runner: powershell        # pwsh → chạy trên/against Windows đích
+category: endpoint-provisioning
+inputs:
+  - name: target_host
+    label: Windows 11 host (IP hoặc hostname)
+    type: string
+    required: true
+  - name: client_cert_thumbprint
+    label: Thumbprint của client cert (đã có trong ./certs)
+    type: string
+    required: true
+  - name: mapped_user
+    label: Local user để map cert (JEA)
+    type: string
+    default: openitms-runner
+entrypoint: setup.ps1

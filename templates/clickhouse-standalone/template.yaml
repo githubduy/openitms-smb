@@ -1,0 +1,10 @@
+name: clickhouse-standalone
+version: 0.1.0
+type: template
+license: MIT
+description: Triển khai ClickHouse standalone (docker compose) lên host đích.
+runner: bash
+category: app-deployment
+inputs:
+  - { name: default_password, label: ClickHouse default user password, type: string, required: true }
+entrypoint: deploy.sh
