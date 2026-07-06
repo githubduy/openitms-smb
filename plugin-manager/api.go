@@ -72,49 +72,56 @@ func (m *Manager) Handler(caller CallerFunc) http.Handler {
 			http.Error(w, `{"error":"`+msg+`"}`, code)
 			return
 		}
-		rpc, routePath, c := res.rpc, res.path, res.c
-
-		body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20)) // 10MB limit
+		preq, err := buildPluginRequest(r, res)
 		if err != nil {
 			http.Error(w, `{"error":"read body"}`, http.StatusBadRequest)
 			return
 		}
-		headers := map[string]string{}
-		for k := range r.Header {
-			headers[k] = r.Header.Get(k)
-		}
-		query := map[string]string{}
-		for k, v := range r.URL.Query() {
-			if len(v) > 0 {
-				query[k] = v[0]
-			}
-		}
 
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
-		resp, err := rpc.HandleRequest(ctx, &pluginv1.HttpRequest{
-			Method:  r.Method,
-			Path:    routePath,
-			Headers: headers,
-			Query:   query,
-			Body:    body,
-			Caller:  c,
-		})
+		resp, err := res.rpc.HandleRequest(ctx, preq)
 		if err != nil {
-			m.log.Error("HandleRequest fail", "route", routePath, "err", err)
+			m.log.Error("HandleRequest fail", "route", res.path, "err", err)
 			http.Error(w, `{"error":"plugin error"}`, http.StatusBadGateway)
 			return
 		}
-		for k, v := range resp.GetHeaders() {
-			w.Header().Set(k, v)
-		}
-		status := int(resp.GetStatus())
-		if status == 0 {
-			status = http.StatusOK
-		}
-		w.WriteHeader(status)
-		_, _ = w.Write(resp.GetBody())
+		writePluginResponse(w, resp)
 	})
+}
+
+// buildPluginRequest dựng HttpRequest gRPC từ http.Request (đọc body + copy headers/query).
+func buildPluginRequest(r *http.Request, res *resolved) (*pluginv1.HttpRequest, error) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20)) // 10MB limit
+	if err != nil {
+		return nil, err
+	}
+	headers := make(map[string]string, len(r.Header))
+	for k := range r.Header {
+		headers[k] = r.Header.Get(k)
+	}
+	query := map[string]string{}
+	for k, v := range r.URL.Query() {
+		if len(v) > 0 {
+			query[k] = v[0]
+		}
+	}
+	return &pluginv1.HttpRequest{
+		Method: r.Method, Path: res.path, Headers: headers, Query: query, Body: body, Caller: res.c,
+	}, nil
+}
+
+// writePluginResponse ghi HttpResponse của plugin ra http.ResponseWriter.
+func writePluginResponse(w http.ResponseWriter, resp *pluginv1.HttpResponse) {
+	for k, v := range resp.GetHeaders() {
+		w.Header().Set(k, v)
+	}
+	status := int(resp.GetStatus())
+	if status == 0 {
+		status = http.StatusOK
+	}
+	w.WriteHeader(status)
+	_, _ = w.Write(resp.GetBody())
 }
 
 // matchRoute so path request với pattern manifest ("exec", "status/{id}") theo segment.
