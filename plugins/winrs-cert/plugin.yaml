@@ -1,0 +1,19 @@
+name: winrs-cert
+version: 0.1.0
+license: MIT
+description: Run commands on Windows via WinRS (WinRM) using certificate authentication
+protocol_version: 1
+entrypoint:
+  linux-amd64: winrs-cert
+  windows-amd64: winrs-cert.exe
+routes:
+  - method: POST
+    path: exec
+    description: Run a command on Windows via WinRS (certificate auth)
+    require_admin: true
+  - method: GET
+    path: certs
+    description: List certificates available in ./certs
+permissions:
+  - certs:read
+  - network:outbound

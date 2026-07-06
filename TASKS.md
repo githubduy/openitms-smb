@@ -19,9 +19,13 @@
 > | P1-07 | 🟡 **Patch 0002 branding v1** (bộ-4 đủ): title + logo/favicon SVG + tên app i18n (5 lang) — chain 0001+0002 apply sạch + build PASS. Còn P1-07b: chuỗi i18n dài + About attribution + favicon.png — cần node/FULL_UI (CI) |
 > | P2-04 | ✅ Package `certstore` (nạp nóng .pem/.pfx, poll watcher, file rác an toàn) — 3 test PASS trên Windows. Wire vào winrs-cert ở P1-09 |
 > | P2-01/02 | 🟡 Installer Linux viết xong (install.sh idempotent + my.cnf socket-only + 2 systemd unit + uninstall) — syntax OK; còn fetch-mariadb + package.sh + **E2E VM offline** để đóng AC |
-> | Còn lại | ⬜ (kế tiếp: P1-08 config hardcode, P1-09 winrs-cert — cần Win11 lab, P2-03 pwsh/dist) |
+> | P0-06 | ✅ Diễn tập sync-upstream: v2.18.16 PASS end-to-end (fetch/apply/build/test); tag giả exit 128 lỗi rõ |
+> | P1-07b | ✅ CI job `ui-build` build frontend Vue thật (npm ci + build) + assert branding OpenITMS-SMB vào index.html — XANH trên GitHub |
+> | P1-08 | ✅ **Patch 0003** (bộ-4) banner nhắc đổi mật khẩu mặc định (admin/quickwin123) — dismissible localStorage, mở dialog đổi pass sẵn có; chain 0001+0002+0003 apply+build PASS; UI compile qua ui-build CI |
+> | P1-09 | 🟡 Plugin winrs-cert code + test XONG (WinRM cert-auth qua masterzen/winrm, dùng certstore, phân loại lỗi cert/mạng/auth, API exec+certs). Unit test PASS. **E2E cert thật cần Win11 lab** (tests/e2e/winrs/README.md) → điều kiện đóng AC cuối |
+> | Còn lại | ⬜ (P2-03 pwsh/dist, P2-05 hardening, P2-06 settings UI, P3+) |
 >
-> **Chờ user:** tạo repo GitHub (org/URL) để push — tên đã chốt **OpenITMS-SMB** (ADR-0004).
+> **Chờ user:** (1) token Secrets read→write để tạo secret BANNED_WORDS_REGEX; (2) Win11 lab cho E2E winrs-cert; (3) revoke/rotate token đã lộ.
 
 > Sinh từ `PLAN.md` (đã review 2026-07-05).
 > Guideline làm việc: `docs/L3-development/AI-ENGINEER-GUIDELINE.md`.
