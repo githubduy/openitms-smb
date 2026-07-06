@@ -1,10 +1,8 @@
 # PATCH: 0006-management-ui
-# WHY: UI quan ly OpenITMS (Settings/Plugins/Registry la tinh nang core theo plan). Trang
-#      /openitms cho admin: liet ke plugin, tim+cai tu registry, quet+fix hardening.
-#      Thuan frontend Vue, goi API da co (patch 0001 GET /api/plugins, 0005 /api/registry).
-# WHAT: file MOI web/src/views/OpenITMS.vue (v-tabs Plugins/Registry/Hardening, axios);
-#      router/index.js +import +route /openitms; App.vue +1 nav item (sau runners).
-#      Rebase: neu router/App.vue doi, them lai import+route+nav item.
+# WHY: UI quan ly OpenITMS (Plugins/Registry/Hardening) — tinh nang core theo plan.
+#      Trang /openitms cho admin. Thuan frontend Vue, goi API da co (0001 /api/plugins, 0005 registry).
+# WHAT: file MOI OpenITMS.vue (3 tab, axios); router +route /openitms; App.vue +nav item.
+#      Rebase: them lai import+route+nav. eslint: object-curly-newline + prefer-template compliant.
 # SPEC: docs/L2-specs/core-patches/0006-management-ui.md
 # BASELINE: v2.18.16
 #
@@ -54,10 +52,10 @@ index e60cc4e..4839129 100644
      component: Tokens,
 diff --git a/web/src/views/OpenITMS.vue b/web/src/views/OpenITMS.vue
 new file mode 100644
-index 0000000..1a98d79
+index 0000000..71484b1
 --- /dev/null
 +++ b/web/src/views/OpenITMS.vue
-@@ -0,0 +1,238 @@
+@@ -0,0 +1,240 @@
 +<!-- QUICKWIN PATCH 0006 — UI quản lý OpenITMS (Plugins / Registry / Hardening).
 +     Self-contained: gọi API /api/plugins, /api/registry, /api/plugins/hardening. -->
 +<template>
@@ -194,7 +192,9 @@ index 0000000..1a98d79
 +        { text: '', value: 'actions', sortable: false },
 +      ],
 +      findingHeaders: [
-+        { text: '', value: 'passed', sortable: false, width: 40 },
++        {
++          text: '', value: 'passed', sortable: false, width: 40,
++        },
 +        { text: 'Mức', value: 'severity' },
 +        { text: 'Kiểm tra', value: 'title' },
 +        { text: 'Chi tiết', value: 'detail' },
@@ -273,7 +273,7 @@ index 0000000..1a98d79
 +        this.issues = data.issues || 0;
 +        this.scanned = true;
 +      } catch (e) {
-+        this.error = 'Plugin hardening chưa cài hoặc chưa chạy: ' + this.errText(e);
++        this.error = `Plugin hardening chưa cài hoặc chưa chạy: ${this.errText(e)}`;
 +      } finally {
 +        this.loading = false;
 +      }
