@@ -2,3 +2,4 @@
 # LUẬT: mỗi patch phải có đủ bộ-4: file .patch + dòng ở đây + entry CHANGELOG.md
 #       + spec docs/L2-specs/core-patches/<số>-<tên>.md
 # (chưa có patch nào — Phase 1 sẽ thêm 0001-plugin-manager-hook.patch)
+0001-plugin-manager-hook.patch

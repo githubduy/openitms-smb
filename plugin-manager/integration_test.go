@@ -119,6 +119,49 @@ func TestIntegration_LifecycleAndDynamicAPI(t *testing.T) {
 	if resp3.StatusCode != 404 {
 		t.Fatalf("plugin lạ phải 404, got %d", resp3.StatusCode)
 	}
+
+	// AC P1-05: caller không đủ quyền trên route require_admin → 403
+	nonAdmin := httptest.NewServer(m.Handler(func(*http.Request) *pluginv1.Caller {
+		return &pluginv1.Caller{UserId: 2, Username: "user", IsAdmin: false}
+	}))
+	defer nonAdmin.Close()
+	r403, err := http.Get(nonAdmin.URL + "/api/plugins/hello/admin/ping")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r403.Body.Close()
+	if r403.StatusCode != 403 {
+		t.Fatalf("non-admin gọi admin route phải 403, got %d", r403.StatusCode)
+	}
+	// admin gọi được bình thường
+	rOK, err := http.Get(srv.URL + "/api/plugins/hello/admin/ping")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rOK.Body.Close()
+	if rOK.StatusCode != 200 {
+		t.Fatalf("admin gọi admin route phải 200, got %d", rOK.StatusCode)
+	}
+
+	// chưa authenticate (caller nil) → 401
+	unauth := httptest.NewServer(m.Handler(func(*http.Request) *pluginv1.Caller { return nil }))
+	defer unauth.Close()
+	r401, err := http.Post(unauth.URL+"/api/plugins/hello/echo", "text/plain", strings.NewReader("x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r401.Body.Close()
+	if r401.StatusCode != 401 {
+		t.Fatalf("caller nil phải 401, got %d", r401.StatusCode)
+	}
+
+	// webPath prefix (core chạy dưới sub-path) vẫn route được
+	reqWP := httptest.NewRequest("GET", "/web/api/plugins/hello/info", nil)
+	recWP := httptest.NewRecorder()
+	m.Handler(testCaller).ServeHTTP(recWP, reqWP)
+	if recWP.Code != 200 {
+		t.Fatalf("webPath prefix phải 200, got %d", recWP.Code)
+	}
 }
 
 func TestIntegration_RunTaskStream(t *testing.T) {

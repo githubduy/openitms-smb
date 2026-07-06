@@ -13,4 +13,8 @@ routes:
   - method: GET
     path: info
     description: Plugin info
+  - method: GET
+    path: admin/ping
+    description: Admin-only ping
+    require_admin: true
 permissions: []

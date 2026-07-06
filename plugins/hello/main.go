@@ -23,6 +23,7 @@ func (h *helloPlugin) Metadata(_ context.Context) (*pluginv1.Metadata, error) {
 		Routes: []*pluginv1.Route{
 			{Method: "POST", Path: "echo", Description: "Echo request body back"},
 			{Method: "GET", Path: "info", Description: "Plugin info"},
+			{Method: "GET", Path: "admin/ping", Description: "Admin-only ping", RequireAdmin: true},
 		},
 	}, nil
 }
@@ -38,6 +39,8 @@ func (h *helloPlugin) HandleRequest(_ context.Context, req *pluginv1.HttpRequest
 	case "info":
 		body, _ := json.Marshal(map[string]string{"name": "hello", "version": version})
 		return jsonResp(200, body), nil
+	case "admin/ping":
+		return jsonResp(200, []byte(`{"pong":"admin"}`)), nil
 	default:
 		return jsonResp(404, []byte(`{"error":"unknown route"}`)), nil
 	}

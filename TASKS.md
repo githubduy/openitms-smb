@@ -13,8 +13,9 @@
 > | P1-02 | ✅ proto v1 + buf (lint except 3 naming rule có chủ đích) + stubs generate (`scripts/gen-proto.sh`) — `buf breaking` chạy khi CI lên GitHub |
 > | P1-03 | ✅ SDK Go (`sdk/go/`: Serve/Plugin interface/GRPCPlugin/TaskEmitter) + plugin `hello` < 100 dòng — AC đạt |
 > | P1-04 | ✅ Plugin Manager: scan/validate/checksum/launch (go-plugin mTLS)/metadata-khớp-manifest/API động/health-restart backoff — integration test THẬT pass cả 4 (lifecycle, API 200/404/404, RunTask stream, kill→tự restart pid mới) |
-> | P1-05 | 🟡 API động đã có trong P1-04 (`Manager.Handler`) — còn thiếu: enforce permissions từng quyền + mount vào core (patch 0001, P1-06) |
-> | Còn lại | ⬜ chưa bắt đầu |
+> | P1-05 | ✅ API động hoàn chỉnh: 200/401/403/404 test đủ (route require_admin thật trên hello), chịu webPath prefix. Permissions enum khai báo + enforce require_admin; enforce từng quyền tài nguyên (certs:read...) gắn khi có API core tương ứng (ghi ở spec plugin-manager) |
+> | P1-06 | ✅ **Patch 0001 hoàn thành đúng bộ-4** (patch + series + CHANGELOG + spec). Hook mỏng: 1 dòng router.go + 5 dòng go.mod + file mới quickwin_plugins.go (~60 dòng keo, go.sum generated). Verify: reset sạch → apply → build → E2E `plugin-through-core.sh` PASS (core load hello, 401 chưa login, login session thật → info/echo trả đúng caller admin); smoke không plugins vẫn PASS (degrade gracefully) |
+> | Còn lại | ⬜ chưa bắt đầu (kế tiếp: P1-07 branding — CHỜ TÊN, P1-08 config hardcode, P1-09 winrs-cert — cần Win11 lab) |
 >
 > **Chờ user:** tạo repo GitHub (org/tên) + chốt tên sản phẩm chính thức.
 

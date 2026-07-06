@@ -18,7 +18,14 @@ type CallerFunc func(*http.Request) *pluginv1.Caller
 // Mount vào router của core với prefix "/api/plugins/".
 func (m *Manager) Handler(caller CallerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rest := strings.TrimPrefix(r.URL.Path, "/api/plugins/")
+		// chịu được webPath prefix của core (vd /web/api/plugins/...)
+		const marker = "/api/plugins/"
+		idx := strings.Index(r.URL.Path, marker)
+		if idx < 0 {
+			http.Error(w, `{"error":"bad plugin path"}`, http.StatusNotFound)
+			return
+		}
+		rest := r.URL.Path[idx+len(marker):]
 		name, routePath, ok := strings.Cut(rest, "/")
 		if !ok || name == "" {
 			http.Error(w, `{"error":"missing plugin name or route"}`, http.StatusNotFound)
