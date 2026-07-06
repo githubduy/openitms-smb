@@ -93,6 +93,7 @@ jobs:
       - run: scripts/build-all.sh
       - run: tests/e2e/smoke.sh
       - run: tests/e2e/plugin-through-core.sh
+      - run: tests/e2e/registry-through-core.sh
 
   templates-lint:
     # P3-05: lint playbook templates (shellcheck cho .sh; PSScriptAnalyzer/ansible-lint sau)

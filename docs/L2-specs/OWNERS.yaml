@@ -13,7 +13,7 @@ rules:
     paths: ["proto/**", "sdk/**"]
     status: active
   - spec: docs/L2-specs/registry-format.md
-    paths: ["registry/**"]
+    paths: ["registry/**", "upstream/api/quickwin_registry.go"]
     status: active
   - spec: docs/L2-specs/installer-linux.md
     paths: ["installer/**"]

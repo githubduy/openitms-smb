@@ -3,6 +3,11 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-06 — 0005-registry-client.patch
+**WHY:** registry client = ngoại lệ core được duyệt (ADR-0003), hạ tầng plugin/template phụ thuộc.
+**WHAT:** file mới api/quickwin_registry.go (search + install, verify sig+checksum, unpack plugin);
+router.go +1 dòng; go.mod +require/replace quickwin.dev/registry. E2E: registry-through-core.sh.
+
 ## 2026-07-06 — 0003-default-password-banner.patch
 **WHY:** admin mặc định admin/quickwin123 (yêu cầu gốc) → ép nhắc đổi mật khẩu lần đầu (plan 7.3).
 **WHAT:** App.vue thêm 1 v-alert (banner cam) + computed showDefaultPasswordWarning +

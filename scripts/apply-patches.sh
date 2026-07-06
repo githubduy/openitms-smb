@@ -26,4 +26,12 @@ while IFS= read -r line; do
   applied=$((applied+1))
 done < "$SERIES"
 
+# go.sum không nằm trong patch — regenerate nếu go.mod bị patch đổi (deps mới cần sum).
+# so với HEAD (patch được stage nên phải dùng HEAD, không phải unstaged diff).
+if ! git -C "$UP" diff HEAD --quiet -- go.mod 2>/dev/null; then
+  GO="$ROOT/Go/go/bin/go"; [ -x "$GO" ] || GO="$ROOT/Go/go/bin/go.exe"; [ -x "$GO" ] || GO=go
+  echo "==> go.mod đã đổi → go mod tidy (regenerate go.sum)"
+  ( cd "$UP" && "$GO" mod tidy ) || { echo "ERROR: go mod tidy fail sau apply" >&2; exit 1; }
+fi
+
 echo "OK: đã apply $applied patch vào upstream/ (working tree, chưa commit)."

@@ -1,0 +1,211 @@
+# PATCH: 0005-registry-client
+# WHY: Registry client la 1/2 ngoai le core duoc duyet (ADR-0003) — ha tang phan phoi
+#      moi plugin/template phu thuoc. Mount /api/registry/{search,install} tren subrouter
+#      da authenticate (install chi admin). Logic that o quickwin.dev/registry.
+# WHAT: file MOI api/quickwin_registry.go (search+install, verify ed25519 sig + sha256,
+#      unpack plugin vao QUICKWIN_PLUGINS_DIR); router.go +1 dong; go.mod +require/replace
+#      quickwin.dev/registry. Rebase: chen registerQuickwinRegistry sau registerQuickwinPlugins.
+# SPEC: docs/L2-specs/core-patches/0005-registry-client.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/quickwin_registry.go b/api/quickwin_registry.go
+new file mode 100644
+index 0000000..6256870
+--- /dev/null
++++ b/api/quickwin_registry.go
+@@ -0,0 +1,165 @@
++// QUICKWIN PATCH 0005 — hook Registry client vào core (ngoại lệ core được duyệt, ADR-0003).
++// Mount API động /api/registry/... để search + install artifact (plugin/template/endpoint-script)
++// từ 2 registry mặc định: local (air-gapped) + public (GitHub Pages). Verify chữ ký ed25519 +
++// checksum trước khi ghi ra đĩa. Logic thật ở module ngoài cây upstream (quickwin.dev/registry).
++// Spec: docs/L2-specs/core-patches/0005-registry-client.md
++package api
++
++import (
++	"crypto/ed25519"
++	"encoding/json"
++	"net/http"
++	"os"
++	"path/filepath"
++	"strings"
++
++	"github.com/gorilla/mux"
++	log "github.com/sirupsen/logrus"
++
++	"github.com/semaphoreui/semaphore/api/helpers"
++	"github.com/semaphoreui/semaphore/db"
++
++	"quickwin.dev/registry"
++)
++
++// helpersUser lấy user đã authenticate từ context (nil,false nếu chưa).
++func helpersUser(r *http.Request) (*db.User, bool) {
++	u, ok := helpers.GetFromContext(r, "user").(*db.User)
++	return u, ok
++}
++
++// registerQuickwinRegistry mount registry API trên subrouter đã authenticate (admin-only cho install).
++func registerQuickwinRegistry(authenticatedAPI *mux.Router) {
++	sources := quickwinRegistrySources()
++	client := registry.NewClient(quickwinTrustedKeys()...)
++	h := &registryHandlers{client: client, sources: sources, pluginsDir: quickwinPluginsDir()}
++
++	authenticatedAPI.HandleFunc("/registry/search", h.search).Methods("GET")
++	authenticatedAPI.HandleFunc("/registry/install", h.install).Methods("POST")
++	log.Infof("quickwin: registry client mounted (%d source)", len(sources))
++}
++
++type registryHandlers struct {
++	client     *registry.Client
++	sources    []registry.Source
++	pluginsDir string
++}
++
++func (h *registryHandlers) search(w http.ResponseWriter, r *http.Request) {
++	q := r.URL.Query().Get("q")
++	typ := registry.ArtifactType(r.URL.Query().Get("type"))
++	arts, err := h.client.Search(h.sources, q, typ)
++	if err != nil {
++		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
++		return
++	}
++	writeJSON(w, http.StatusOK, map[string]any{"artifacts": arts})
++}
++
++func (h *registryHandlers) install(w http.ResponseWriter, r *http.Request) {
++	// chỉ admin được cài
++	if u, ok := helpersUser(r); !ok || !u.Admin {
++		writeJSON(w, http.StatusForbidden, map[string]string{"error": "admin required"})
++		return
++	}
++	var req struct {
++		Source, Type, Name, Version string
++	}
++	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
++		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body JSON không hợp lệ"})
++		return
++	}
++	src, ok := findSource(h.sources, req.Source)
++	if !ok {
++		writeJSON(w, http.StatusNotFound, map[string]string{"error": "source không tồn tại"})
++		return
++	}
++	a, tarball, err := h.client.Install(src, registry.ArtifactType(req.Type), req.Name, req.Version)
++	if err != nil {
++		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
++		return
++	}
++	// plugin → giải nén vào pluginsDir/<name> (plugin manager nhận ở lần scan kế); loại khác → trả metadata.
++	if a.Type == registry.TypePlugin {
++		dest := filepath.Join(h.pluginsDir, a.Name)
++		if err := os.MkdirAll(dest, 0o755); err != nil {
++			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
++			return
++		}
++		if err := registry.Unpack(tarball, dest); err != nil {
++			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
++			return
++		}
++	}
++	writeJSON(w, http.StatusOK, map[string]any{"installed": a, "note": "restart/rescan để kích hoạt plugin"})
++}
++
++// --- cấu hình từ env (installer set; hardcode default an toàn) ---
++
++func quickwinRegistrySources() []registry.Source {
++	var s []registry.Source
++	local := os.Getenv("QUICKWIN_REGISTRY_LOCAL")
++	if local == "" {
++		local = "file://" + filepath.ToSlash(filepath.Join(quickwinPrefix(), "registry"))
++	}
++	// chỉ thêm local nếu index.json tồn tại (fresh-install chưa có registry local → bỏ, không lỗi)
++	if strings.HasPrefix(local, "file://") {
++		if _, err := os.Stat(filepath.Join(strings.TrimPrefix(local, "file://"), "index.json")); err == nil {
++			s = append(s, registry.Source{Name: "local", URL: local})
++		}
++	} else {
++		s = append(s, registry.Source{Name: "local", URL: local})
++	}
++	if p := os.Getenv("QUICKWIN_REGISTRY_PUBLIC"); p != "" {
++		s = append(s, registry.Source{Name: "public", URL: p})
++	}
++	return s
++}
++
++func quickwinTrustedKeys() []ed25519.PublicKey {
++	var keys []ed25519.PublicKey
++	for _, enc := range strings.Split(os.Getenv("QUICKWIN_REGISTRY_PUBKEYS"), ",") {
++		enc = strings.TrimSpace(enc)
++		if enc == "" {
++			continue
++		}
++		if k, err := registry.DecodePublicKey(enc); err == nil {
++			keys = append(keys, k)
++		} else {
++			log.WithError(err).Warn("quickwin: trusted registry pubkey không hợp lệ, bỏ qua")
++		}
++	}
++	return keys // rỗng → LoadIndex bỏ verify (chỉ dev local; production luôn set)
++}
++
++func quickwinPluginsDir() string {
++	if d := os.Getenv("QUICKWIN_PLUGINS_DIR"); d != "" {
++		return d
++	}
++	return "plugins"
++}
++
++func quickwinPrefix() string {
++	if p := os.Getenv("QUICKWIN_PREFIX"); p != "" {
++		return p
++	}
++	return "."
++}
++
++func findSource(sources []registry.Source, name string) (registry.Source, bool) {
++	if name == "" && len(sources) > 0 {
++		return sources[0], true
++	}
++	for _, s := range sources {
++		if s.Name == name {
++			return s, true
++		}
++	}
++	return registry.Source{}, false
++}
++
++func writeJSON(w http.ResponseWriter, status int, v any) {
++	w.Header().Set("Content-Type", "application/json")
++	w.WriteHeader(status)
++	_ = json.NewEncoder(w).Encode(v)
++}
+diff --git a/api/router.go b/api/router.go
+index c9ab34a..e6d18ef 100644
+--- a/api/router.go
++++ b/api/router.go
+@@ -183,6 +183,7 @@ func Route(
+ 	authenticatedAPI := r.PathPrefix(webPath + "api").Subrouter()
+ 	authenticatedAPI.Use(StoreMiddleware, JSONMiddleware, authentication)
+ 	registerQuickwinPlugins(authenticatedAPI) // QUICKWIN PATCH 0001
++	registerQuickwinRegistry(authenticatedAPI) // QUICKWIN PATCH 0005
+ 
+ 	authenticatedAPI.Path("/info").HandlerFunc(systemInfoController.GetSystemInfo).Methods("GET", "HEAD")
+ 
+diff --git a/go.mod b/go.mod
+index 9c5504c..52a2336 100644
+--- a/go.mod
++++ b/go.mod
+@@ -95,6 +95,7 @@ require (
+ 	modernc.org/mathutil v1.7.1 // indirect
+ 	modernc.org/memory v1.11.0 // indirect
+ 	quickwin.dev/pluginmanager v0.0.0
++	quickwin.dev/registry v0.0.0
+ 	rsc.io/qr v0.2.0 // indirect
+ )
+ 
+@@ -103,3 +104,5 @@ replace quickwin.dev/pluginmanager => ../plugin-manager
+ replace quickwin.dev/proto => ../proto/gen/go
+ 
+ replace quickwin.dev/sdk => ../sdk/go
++
++replace quickwin.dev/registry => ../registry
