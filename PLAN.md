@@ -42,18 +42,23 @@ và **MariaDB (GPLv2) đóng gói dạng binary độc lập giao tiếp qua soc
 
 | Giai đoạn | Tuần | Kết quả |
 |---|---|---|
-| 0 — Nền móng | 1–2 | Repo + patch system + CI + hồ sơ pháp lý |
-| 1 — Plugin Manager | 3–6 | Plugin chạy được, gọi lệnh thật xuống Windows 11 qua cert |
+| 0 — Nền móng ✅ | 1–2 | Repo + patch system + CI + hồ sơ pháp lý — **xong 2026-07-05** |
+| 1 — Plugin Manager 🟡 | 3–6 | Plugin chạy được ✅ (SDK Go + Plugin Manager + hello, test thật pass); còn: hook core, branding, winrs-cert tới Windows 11 |
 | 2 — Đóng gói Linux | 7–9 | Bộ cài 1 lệnh hoàn chỉnh (core + MariaDB + pwsh) |
 | 3 — Registry + Templates | 10–13 | Cài plugin/template từ registry, 5 template 1-click |
 | 4 — AI pipeline + **Release v1.0 Linux** | 14–16 | Quy trình AI-dev vận hành, phát hành công khai |
 | 5 — Sau v1.0 | — | Windows installer (v1.x) → Live USB Linux minimal (v2.x) |
 
 ### Hiện trạng & cần quyết
-- ✅ Đã có: plan chi tiết này, guideline cho AI engineer, backlog 42 task kèm tiêu chí nghiệm thu.
-- ✅ Đã chốt (mục 13): baseline = tag Semaphore stable mới nhất; registry public = GitHub Pages;
+- ✅ Đã có: plan chi tiết này, guideline AI engineer, backlog chi tiết (TASKS.md — bảng trạng thái ở đầu file).
+- ✅ Đã chốt (mục 13): baseline = **v2.18.16**; registry public = GitHub Pages;
   SonarQube self-host; Live USB = Alpine (control từng package).
-- ⏳ Còn 1 quyết định: **tên sản phẩm chính thức + domain** ("QuickWin" là tên tạm).
+- ✅ **Phase 0 xong** (2026-07-05): repo + submodule pin + patch system (test PASS) + build binary
+  + smoke e2e PASS + pháp lý + docs L0/L1/ADR + governance + CI/policy (chạy thật khi lên GitHub).
+- ✅ **Phase 1 lõi plugin xong**: proto v1 + SDK Go + Plugin Manager + plugin hello —
+  integration test thật pass (API động, stream, tự restart). Còn: hook core (patch 0001),
+  branding, config, winrs-cert.
+- ⏳ Chờ quyết định: **tên sản phẩm chính thức + domain** ("QuickWin" là tên tạm) + **repo GitHub** để push.
 
 > *Chi tiết từng mảng: mục 2 (pháp lý) · 3–5 (kiến trúc & plugin) · 7 (đóng gói) · 9 (quy trình
 > dev & publish) · 10 (roadmap) · 12 (hệ thống tài liệu) — trong tài liệu này.*
@@ -445,17 +450,23 @@ squash-merge mặc định cho PR của AI để lịch sử `main` sạch.
 
 ## 10. Roadmap & Milestones
 
-### Phase 0 — Nền móng (tuần 1–2)
-- [ ] Lập repo cấu trúc mục 4.1; submodule upstream, pin tag Semaphore mới nhất.
-- [ ] Cài Go toolchain vào `/project/Go/`, script `build-all.sh` build được core nguyên bản.
-- [ ] Bộ khung `sync-upstream` + `apply-patches` chạy rỗng (0 patch) pass.
-- [ ] Hồ sơ pháp lý: LICENSE/LICENSE-SEMAPHORE/NOTICE.md, CI `go-licenses` gate.
+### Phase 0 — Nền móng (tuần 1–2) — ✅ DONE 2026-07-05 (phần local; CI/mirror chờ repo GitHub)
+- [x] Lập repo cấu trúc mục 4.1; submodule upstream, pin tag Semaphore mới nhất (**v2.18.16**).
+- [x] Cài Go toolchain (1.24.6) vào `Go/`, `build-all.sh` build core nguyên bản
+      (binary `quickwin-dev-sem2.18.16`; backend-only dùng placeholder UI assets, `FULL_UI=1` cho bản đầy đủ).
+- [x] Bộ khung `sync-upstream` + `apply-patches` chạy rỗng pass (+ test patch giả PASS / patch hỏng FAIL đúng).
+- [x] Hồ sơ pháp lý: LICENSE/LICENSE-SEMAPHORE/NOTICE.md ✔; CI `go-licenses` gate đã viết
+      (chạy thật khi push GitHub — cùng với P0-13 hardening/mirror).
+- [x] *(bổ sung)* Docs L0/L1 + ADR-0001→0004, guideline AI, governance/DCO/issue forms,
+      testing-strategy + `tests/e2e/smoke.sh` PASS (server thật, /api/ping + UI 200).
 
-### Phase 1 — Core patches + Plugin Manager (tuần 3–6)
-- [ ] Patch 0001: hook Plugin Manager; package `plugin-manager/` quét `/plugins`, chạy
-      go-plugin, API động từ manifest.
-- [ ] `proto/` v1 + SDK Go; plugin `winrs-cert` chạy end-to-end tới Windows 11 qua cert.
-- [ ] Patch 0002 branding + 0003 config hardcode + Settings UI tối thiểu.
+### Phase 1 — Core patches + Plugin Manager (tuần 3–6) — 🟡 đang làm
+- [x] Package `plugin-manager/` quét `/plugins`, chạy go-plugin, API động từ manifest,
+      health-restart — integration test thật PASS (commit 6913057).
+      → [ ] còn: Patch 0001 hook vào core + enforce permissions từng quyền (P1-05/06).
+- [x] `proto/` v1 + SDK Go + plugin `hello` chạy end-to-end qua go-plugin.
+      → [ ] còn: plugin `winrs-cert` tới Windows 11 qua cert (P1-09 — cần Win11 lab).
+- [ ] Patch 0002 branding (chờ chốt tên) + 0003 config hardcode + Settings UI tối thiểu.
 
 ### Phase 2 — Đóng gói Linux (tuần 7–9)
 - [ ] Bundle MariaDB + systemd + `install.sh` 1 lệnh; output vào `/project/dist/`.
