@@ -1,0 +1,7 @@
+# Manifest hợp lệ tối thiểu (dùng cho test validator)
+name: hello
+version: 0.1.0
+license: MIT
+protocol_version: 1
+entrypoint:
+  linux-amd64: hello

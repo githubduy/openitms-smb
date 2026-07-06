@@ -8,7 +8,9 @@
 > | P0-06 | 🟡 script sync-upstream có, chưa diễn tập với tag thật |
 > | P0-07, 09, 10, 12 | ✅ xong — license/NOTICE + docs L0/L1 + ADR 0001–0004 + guideline + OWNERS.yaml + governance/issue forms |
 > | P0-08, 13 | 🟡 file CI + policy đã viết — cần push GitHub để chạy thật + bật push protection/mirror |
-> | P0-11 | ⬜ chưa làm (testing-strategy + khung e2e) |
+> | P0-11 | ✅ testing-strategy.md + `tests/e2e/smoke.sh` chạy PASS thật (server bolt + /api/ping + UI 200); tầng 3-4 dựng ở P1/P2 |
+> | P1-01 | 🟡 schema `plugin.schema.json` + spec + example xong — validator Go (bắt 6 case lỗi) làm cùng P1-04 |
+> | P1-02 | 🟡 `plugin.proto` v1 + buf.yaml/buf.gen.yaml + CI job buf xong — `buf lint/breaking` verify khi CI chạy trên GitHub |
 > | Còn lại | ⬜ chưa bắt đầu |
 >
 > **Chờ user:** tạo repo GitHub (org/tên) + chốt tên sản phẩm chính thức.

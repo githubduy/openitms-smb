@@ -1,0 +1,106 @@
+// Hợp đồng DUY NHẤT giữa Core (Plugin Manager) và mọi plugin (Go, Python, ...).
+// Luật tiến hóa (ADR-0001, guideline luật #4): CHỈ thêm field với tag mới / rpc mới.
+// KHÔNG đổi/xóa field, không đổi số tag. Breaking → bump APP-PROTOCOL-VERSION + ADR.
+syntax = "proto3";
+
+package quickwin.plugin.v1;
+
+option go_package = "quickwin.dev/proto/quickwin/plugin/v1;pluginv1";
+
+// go-plugin handshake: APP-PROTOCOL-VERSION hiện hành = 1
+service Plugin {
+  // Core gọi ngay sau khi launch — plugin tự mô tả (đối chiếu với plugin.yaml).
+  rpc GetMetadata(GetMetadataRequest) returns (Metadata);
+
+  // API động: core proxy HTTP request /api/plugins/<name>/<route> sang plugin.
+  rpc HandleRequest(HttpRequest) returns (HttpResponse);
+
+  // Tích hợp task runner: chạy tác vụ dài, stream log/status về UI realtime.
+  rpc RunTask(TaskSpec) returns (stream TaskEvent);
+
+  // Health-check định kỳ (mặc định 30s) — fail liên tiếp 3 lần → restart plugin.
+  rpc HealthCheck(HealthCheckRequest) returns (Health);
+}
+
+message GetMetadataRequest {}
+
+message Metadata {
+  string name = 1;             // trùng plugin.yaml name
+  string version = 2;          // semver
+  repeated Route routes = 3;
+  repeated string permissions = 4;
+  string min_core_version = 5; // "" = mọi version
+}
+
+message Route {
+  string method = 1;      // GET|POST|PUT|DELETE
+  string path = 2;        // relative: "exec", "status/{id}"
+  string description = 3;
+  bool require_admin = 4; // true → chỉ admin gọi được
+}
+
+message HttpRequest {
+  string method = 1;
+  string path = 2;                  // relative path đã strip prefix
+  map<string, string> headers = 3;
+  map<string, string> query = 4;
+  bytes body = 5;
+  Caller caller = 6;                // ai đang gọi (core đã authenticate)
+}
+
+message Caller {
+  int64 user_id = 1;
+  string username = 2;
+  bool is_admin = 3;
+  int64 project_id = 4; // 0 = ngoài ngữ cảnh project
+}
+
+message HttpResponse {
+  int32 status = 1;
+  map<string, string> headers = 2;
+  bytes body = 3;
+}
+
+message TaskSpec {
+  string task_id = 1;
+  string action = 2;                // plugin tự định nghĩa (vd "winrs-exec")
+  map<string, string> params = 3;
+  int64 timeout_seconds = 4;        // 0 = mặc định của plugin
+  Caller caller = 5;
+}
+
+message TaskEvent {
+  string task_id = 1;
+  oneof event {
+    string log_line = 2;
+    TaskStatus status = 3;
+    TaskResult result = 4;          // event cuối cùng
+  }
+}
+
+enum TaskStatus {
+  TASK_STATUS_UNSPECIFIED = 0;
+  TASK_STATUS_RUNNING = 1;
+  TASK_STATUS_SUCCESS = 2;
+  TASK_STATUS_FAILED = 3;
+  TASK_STATUS_TIMEOUT = 4;
+}
+
+message TaskResult {
+  TaskStatus status = 1;
+  string message = 2;
+  bytes data = 3; // JSON tuỳ plugin
+}
+
+message HealthCheckRequest {}
+
+message Health {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_HEALTHY = 1;
+    STATUS_DEGRADED = 2; // chạy được nhưng có vấn đề (log message)
+    STATUS_UNHEALTHY = 3;
+  }
+  Status status = 1;
+  string message = 2;
+}

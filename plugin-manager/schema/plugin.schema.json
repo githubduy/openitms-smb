@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quickwin.dev/schemas/plugin.schema.json",
+  "title": "QuickWin plugin manifest (plugin.yaml)",
+  "type": "object",
+  "required": ["name", "version", "license", "protocol_version", "entrypoint"],
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$",
+      "maxLength": 64,
+      "description": "kebab-case, duy nhất trong registry"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(-[0-9A-Za-z.-]+)?$",
+      "description": "semver"
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SPDX id (MIT, Apache-2.0, ...) — registry TỪ CHỐI nếu thiếu"
+    },
+    "description": { "type": "string", "maxLength": 500 },
+    "protocol_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "APP-PROTOCOL-VERSION của proto/quickwin/plugin/v1"
+    },
+    "entrypoint": {
+      "type": "object",
+      "required": ["linux-amd64"],
+      "additionalProperties": false,
+      "description": "binary theo platform, path tương đối trong thư mục plugin",
+      "properties": {
+        "linux-amd64":   { "type": "string" },
+        "linux-arm64":   { "type": "string" },
+        "windows-amd64": { "type": "string" },
+        "python": {
+          "type": "string",
+          "description": "script .py — chạy qua python3, handshake go-plugin chuẩn stdout"
+        }
+      }
+    },
+    "checksum": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+      "description": "map file → sha256 (Plugin Manager verify trước khi launch)"
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["method", "path"],
+        "additionalProperties": false,
+        "properties": {
+          "method": { "enum": ["GET", "POST", "PUT", "DELETE"] },
+          "path": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9/_{}-]*$",
+            "description": "relative — core map thành /api/plugins/<name>/<path>"
+          },
+          "description": { "type": "string" },
+          "require_admin": { "type": "boolean", "default": false }
+        }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "certs:read",
+          "inventory:read",
+          "inventory:write",
+          "task:create",
+          "task:read",
+          "settings:read",
+          "network:outbound"
+        ]
+      },
+      "description": "quyền plugin xin — Plugin Manager enforce, UI hiển thị khi cài"
+    },
+    "min_core_version": { "type": "string" },
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "menu_title": { "type": "string", "maxLength": 40 },
+        "assets_dir": { "type": "string", "description": "thư mục static nhúng vào UI" }
+      }
+    }
+  }
+}

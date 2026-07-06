@@ -8,10 +8,10 @@ rules:
     status: planned          # Phase 1
   - spec: docs/L2-specs/plugin-manifest.md
     paths: ["plugin-manager/schema/**"]
-    status: planned
+    status: active
   - spec: docs/L2-specs/proto-contract.md
     paths: ["proto/**"]
-    status: planned
+    status: active
   - spec: docs/L2-specs/registry-format.md
     paths: ["registry/**"]
     status: planned          # Phase 3

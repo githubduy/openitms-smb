@@ -1,0 +1,14 @@
+version: v2
+plugins:
+  # Go stubs → plugin-manager + quickwin-plugin-sdk-go
+  - remote: buf.build/protocolbuffers/go
+    out: gen/go
+    opt: paths=source_relative
+  - remote: buf.build/grpc/go
+    out: gen/go
+    opt: paths=source_relative
+  # Python stubs → quickwin-plugin-sdk-py
+  - remote: buf.build/protocolbuffers/python
+    out: gen/python
+  - remote: buf.build/grpc/python
+    out: gen/python
