@@ -7,6 +7,10 @@ Requires=openitms-db.service
 Type=simple
 WorkingDirectory=@PREFIX@
 Environment=QUICKWIN_PLUGINS_DIR=@PREFIX@/plugins
+Environment=OPENITMS_PREFIX=@PREFIX@
+Environment=QUICKWIN_CONFIG=@PREFIX@/config/config.json
+Environment=QUICKWIN_CERTS_DIR=@PREFIX@/certs
+Environment=QUICKWIN_GITEA_ADDR=127.0.0.1:3080
 ExecStart=@PREFIX@/bin/@BIN@ server --config @PREFIX@/config/config.json
 Restart=on-failure
 RestartSec=3
