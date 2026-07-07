@@ -3,6 +3,11 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-07 — 0015-i18n-quickwin-ui.patch
+**WHY:** UI QuickWin hardcode tiếng Việt trên giao diện English → lệch ngôn ngữ (tooltip, WinRS Console…).
+**WHAT:** en.js +key (tooltip* menu, winrs* console/enroll, localRepo*, loading); App.vue navTooltips→$t;
+WinRSConsole/InventoryForm/Repositories/OpenITMS chuyển VN→$t hoặc English. Chỉ frontend, fallback 'en'. Spec 0015.
+
 ## 2026-07-07 — 0014-endpoint-enroll-script.patch
 **WHY:** cần cách chuẩn bị máy Windows (WinRM+cert / OpenSSH) để OpenITMS quản lý — tải script ngay trên web.
 **WHAT:** api/projects/scripts/{winrs-enroll,ssh-enroll}.ps1 (bật WinRM HTTPS+cert / OpenSSH, xuất PEM +

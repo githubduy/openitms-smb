@@ -1,0 +1,268 @@
+# PATCH: 0015-i18n-quickwin-ui
+# WHY: UI QuickWin thêm ở 0006/0009-0014 hardcode tiếng Việt trong khi giao diện Semaphore là
+#      English → lệch ngôn ngữ. Chuyển sang i18n ($t) + chuỗi English trong en.js (fallback locale)
+#      để đồng nhất ngôn ngữ, sẵn sàng đa ngôn ngữ.
+# WHAT: en.js +key (tooltip* menu, winrs* console/enroll, localRepo*, loading...). App.vue navTooltips
+#       dùng $t. WinRSConsole.vue / InventoryForm.vue (editor WinRS) / Repositories.vue (banner) /
+#       OpenITMS.vue (lỗi) chuyển chuỗi VN → $t hoặc English. Chỉ frontend.
+# SPEC: docs/L2-specs/core-patches/0015-i18n-quickwin-ui.md
+# BASELINE: v2.18.16
+#
+diff --git a/web/src/App.vue b/web/src/App.vue
+index f0fdb0f..9d3d930 100644
+--- a/web/src/App.vue
++++ b/web/src/App.vue
+@@ -1272,24 +1272,19 @@ export default {
+       return this.navItems.filter((item) => this.unpinnedNavKeys.includes(item.key));
+     },
+ 
+-    // QUICKWIN PATCH 0013 — giải thích ngắn từng menu cho người dùng không chuyên IT.
++    // QUICKWIN PATCH 0013/0015 — giải thích ngắn từng menu (đa ngôn ngữ qua i18n).
+     navTooltips() {
+       return {
+-        templates: 'Nơi định nghĩa "việc cần chạy" (cài phần mềm, cập nhật, khởi động lại dịch vụ...). '
+-          + 'Mỗi mẫu gắn 1 script + máy đích; bấm 1 nút là chạy.',
+-        schedule: 'Hẹn giờ tự động chạy các mẫu tác vụ (vd: mỗi đêm sao lưu, mỗi tuần cập nhật).',
+-        inventory: 'Danh sách máy đích để chạy tác vụ. "WinRS Endpoints" = máy Windows (qua cert); '
+-          + '"Ansible Inventory" = nhóm máy quản lý kiểu Ansible.',
+-        winrs_console: 'Gõ nhanh 1 lệnh PowerShell xuống 1 máy Windows và xem kết quả ngay — '
+-          + 'không cần tạo mẫu tác vụ.',
+-        environment: 'Biến cấu hình / tham số dùng chung cho tác vụ (vd: đường dẫn, tên miền). '
+-          + 'Tách khỏi script để dễ đổi.',
+-        keys: 'Kho khóa & mật khẩu bảo mật (SSH key, mật khẩu, token) để kết nối máy đích. '
+-          + 'Được mã hoá, không hiện dạng chữ.',
+-        repositories: 'Kho chứa script/playbook (git). Mỗi project có sẵn 1 repo local (Gitea).',
+-        integrations: 'Kết nối OpenITMS với dịch vụ ngoài (webhook) để tự động kích hoạt tác vụ.',
+-        team: 'Quản lý thành viên project + phân quyền ai được xem / chạy / sửa.',
+-        runners: 'Máy "thợ chạy" thực thi tác vụ khi không chạy trực tiếp trên máy chủ OpenITMS.',
++        templates: this.$t('tooltipTemplates'),
++        schedule: this.$t('tooltipSchedule'),
++        inventory: this.$t('tooltipInventory'),
++        winrs_console: this.$t('tooltipWinrsConsole'),
++        environment: this.$t('tooltipEnvironment'),
++        keys: this.$t('tooltipKeys'),
++        repositories: this.$t('tooltipRepositories'),
++        integrations: this.$t('tooltipIntegrations'),
++        team: this.$t('tooltipTeam'),
++        runners: this.$t('tooltipRunners'),
+       };
+     },
+   },
+diff --git a/web/src/components/InventoryForm.vue b/web/src/components/InventoryForm.vue
+index 1109910..5811f5c 100644
+--- a/web/src/components/InventoryForm.vue
++++ b/web/src/components/InventoryForm.vue
+@@ -149,19 +149,17 @@
+         :style="{ border: '1px solid lightgray' }"
+         v-model.trim="item.inventory"
+         :options="winrsCmOptions"
+-        placeholder="# Mỗi dòng 1 host Windows (WinRM cert-auth)
++        placeholder="# One Windows host per line (WinRM cert-auth)
+ # host[:port] cert=<file.pem> [key=<file.key>]
+ 10.0.0.5 cert=win11.pem
+ win-app.lab:5986 cert=app.pem key=app.key"
+       />
+       <div class="caption grey--text mt-1">
+-        Chạy pwsh trực tiếp xuống host Windows qua WinRM (cert).
+-        Cert đặt trong thư mục <code>certs/</code> của runner
+-        (hoặc set <code>QUICKWIN_WINRS_DEFAULT_CERT</code>).
++        {{ $t('winrsHostHint', { certsDir: 'certs/', envVar: 'QUICKWIN_WINRS_DEFAULT_CERT' }) }}
+         <a
+           :href="`/api/project/${projectId}/endpoint/enroll-script/winrs`"
+           download
+-        >Tải script chuẩn bị máy Windows</a> → chạy AS ADMIN trên máy đích để tạo cert.
++        >{{ $t('winrsDownloadScript') }}</a> → {{ $t('winrsDownloadScriptTail') }}
+       </div>
+     </div>
+ 
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index 690cf04..f664f04 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -1,4 +1,46 @@
+ export default {
++  // QUICKWIN PATCH 0015 — sidebar menu tooltips (i18n)
++  tooltipTemplates: 'Define "jobs to run" (install software, updates, restart services…). '
++    + 'Each template links a script + target machines; run it with one click.',
++  tooltipSchedule: 'Automatically run task templates on a schedule (e.g. nightly backup, weekly update).',
++  tooltipInventory: 'The target machines to run tasks on. "WinRS Endpoints" = Windows hosts (via '
++    + 'certificate); "Ansible Inventory" = machines managed the Ansible way.',
++  tooltipWinrsConsole: 'Quickly run a single PowerShell command on one Windows host and see the '
++    + 'result immediately — no need to create a task template.',
++  tooltipEnvironment: 'Shared configuration values / parameters for tasks (e.g. paths, domains). '
++    + 'Kept separate from scripts so they are easy to change.',
++  tooltipKeys: 'Secure store for keys & secrets (SSH keys, passwords, tokens) used to connect to '
++    + 'target machines. Encrypted, never shown in plain text.',
++  tooltipRepositories: 'Stores your scripts/playbooks (git). Each project comes with a built-in '
++    + 'local repository (Gitea).',
++  tooltipIntegrations: 'Connect OpenITMS to external services (webhooks) to trigger tasks automatically.',
++  tooltipTeam: 'Manage project members and permissions — who can view / run / edit.',
++  tooltipRunners: 'Worker machines that execute tasks when not run directly on the OpenITMS server.',
++
++  // QUICKWIN — WinRS Console + endpoint enrollment + local repo (i18n)
++  winrsConsoleTitle: 'WinRS Console',
++  winrsConsoleHint: 'Quickly run a single PowerShell command on one Windows host via WinRM '
++    + '(certificate). No history is saved — use a Task Template (WinRS app) if you need '
++    + 'history/scheduling.',
++  winrsEnrollExpand: 'No machine yet? Download the endpoint setup script '
++    + '(run it on the Windows machine you want to manage)',
++  winrsEnrollHint: 'Download the script and run it with PowerShell (Run as Administrator) on the '
++    + 'Windows machine you want to manage. It enables remote access and exports a certificate; '
++    + 'follow the instructions printed at the end of the script to load it into OpenITMS.',
++  winrsScriptBtn: 'WinRS script (WinRM + cert)',
++  sshScriptBtn: 'SSH script (OpenSSH)',
++  winrsCertLabel: 'Certificate (in certs dir)',
++  winrsNoCerts: 'No certificate found in certs dir',
++  winrsRun: 'Run',
++  winrsUnknownError: 'Unknown error',
++  loading: 'Loading…',
++  winrsHostHint: 'Run pwsh directly on the Windows host via WinRM (certificate). Place the cert in '
++    + 'the runner\'s {certsDir} folder (or set {envVar}).',
++  winrsDownloadScript: 'Download the Windows setup script',
++  winrsDownloadScriptTail: 'run it AS ADMIN on the target machine to create the certificate.',
++  localRepoLabel: 'Local repository (Gitea) of this project:',
++  openOnGitea: 'Open in Gitea',
++
+   checkInterval: 'checkInterval',
+   newCommitCheckInterval: 'New commit check interval',
+   schedule: 'Schedule',
+diff --git a/web/src/views/OpenITMS.vue b/web/src/views/OpenITMS.vue
+index 534a3b9..09eb245 100644
+--- a/web/src/views/OpenITMS.vue
++++ b/web/src/views/OpenITMS.vue
+@@ -280,7 +280,7 @@ export default {
+         this.issues = data.issues || 0;
+         this.scanned = true;
+       } catch (e) {
+-        this.error = `Plugin hardening chưa cài hoặc chưa chạy: ${this.errText(e)}`;
++        this.error = `Hardening plugin not installed or not running: ${this.errText(e)}`;
+       } finally {
+         this.loading = false;
+       }
+@@ -298,7 +298,7 @@ export default {
+ 
+     errText(e) {
+       if (e && e.response && e.response.data && e.response.data.error) return e.response.data.error;
+-      return (e && e.message) || 'lỗi không xác định';
++      return (e && e.message) || 'unknown error';
+     },
+   },
+ };
+diff --git a/web/src/views/project/Repositories.vue b/web/src/views/project/Repositories.vue
+index 1b7d970..fa4085c 100644
+--- a/web/src/views/project/Repositories.vue
++++ b/web/src/views/project/Repositories.vue
+@@ -57,7 +57,7 @@
+       <div class="d-flex align-center">
+         <v-icon color="primary" class="mr-2">mdi-git</v-icon>
+         <span>
+-          Repo local (Gitea) của project:
++          {{ $t('localRepoLabel') }}
+           <strong>{{ giteaRepo.name }}</strong>
+           <code class="ml-1">{{ giteaRepo.branch }}</code>
+         </span>
+@@ -71,7 +71,7 @@
+           rel="noopener noreferrer"
+         >
+           <v-icon left small>mdi-open-in-new</v-icon>
+-          Mở trên Gitea
++          {{ $t('openOnGitea') }}
+         </v-btn>
+       </div>
+     </v-alert>
+diff --git a/web/src/views/project/WinRSConsole.vue b/web/src/views/project/WinRSConsole.vue
+index f01f106..0e037aa 100644
+--- a/web/src/views/project/WinRSConsole.vue
++++ b/web/src/views/project/WinRSConsole.vue
+@@ -4,7 +4,7 @@
+       <v-app-bar-nav-icon @click="showDrawer()"></v-app-bar-nav-icon>
+       <v-toolbar-title>
+         <v-icon color="#0078d4" class="mr-2">mdi-microsoft-windows</v-icon>
+-        WinRS Console
++        {{ $t('winrsConsoleTitle') }}
+       </v-toolbar-title>
+     </v-toolbar>
+ 
+@@ -12,8 +12,7 @@
+ 
+     <div class="pa-4" style="max-width: 900px; margin: auto;">
+       <v-alert type="info" dense text class="mb-4">
+-        Chạy nhanh 1 lệnh PowerShell xuống 1 host Windows qua WinRM (cert). Không lưu lịch sử —
+-        dùng Task Template (app WinRS) nếu cần lịch sử/lịch chạy.
++        {{ $t('winrsConsoleHint') }}
+       </v-alert>
+ 
+       <v-expansion-panels class="mb-4" flat>
+@@ -21,14 +20,12 @@
+           <v-expansion-panel-header>
+             <div>
+               <v-icon color="#0078d4" class="mr-2">mdi-download</v-icon>
+-              Chưa có máy nào? Tải script chuẩn bị endpoint (chạy trên máy Windows cần quản lý)
++              {{ $t('winrsEnrollExpand') }}
+             </div>
+           </v-expansion-panel-header>
+           <v-expansion-panel-content>
+             <p class="body-2 mb-3">
+-              Tải script về, chạy bằng <strong>PowerShell (Run as Administrator)</strong> trên
+-              máy Windows bạn muốn quản lý. Script bật kết nối từ xa + xuất chứng chỉ; làm theo
+-              hướng dẫn in ra cuối script để nạp lên OpenITMS.
++              {{ $t('winrsEnrollHint') }}
+             </p>
+             <v-btn
+               color="primary"
+@@ -37,7 +34,7 @@
+               download
+             >
+               <v-icon left>mdi-microsoft-windows</v-icon>
+-              Script WinRS (WinRM + cert)
++              {{ $t('winrsScriptBtn') }}
+             </v-btn>
+             <v-btn
+               outlined
+@@ -47,7 +44,7 @@
+               download
+             >
+               <v-icon left>mdi-console-network</v-icon>
+-              Script SSH (OpenSSH)
++              {{ $t('sshScriptBtn') }}
+             </v-btn>
+           </v-expansion-panel-content>
+         </v-expansion-panel>
+@@ -58,7 +55,7 @@
+           <v-text-field
+             v-model.trim="host"
+             label="Host / IP"
+-            placeholder="10.0.0.5 hoặc win-app.lab"
++            placeholder="10.0.0.5 or win-app.lab"
+             outlined
+             dense
+           ></v-text-field>
+@@ -78,8 +75,8 @@
+       <v-autocomplete
+         v-model="cert"
+         :items="certs"
+-        label="Certificate (trong certs dir)"
+-        :no-data-text="certsLoaded ? 'Không có cert nào trong certs dir' : 'Đang tải...'"
++        :label="$t('winrsCertLabel')"
++        :no-data-text="certsLoaded ? $t('winrsNoCerts') : $t('loading')"
+         outlined
+         dense
+       ></v-autocomplete>
+@@ -100,7 +97,7 @@
+           @click="run"
+         >
+           <v-icon left>mdi-play</v-icon>
+-          Chạy
++          {{ $t('winrsRun') }}
+         </v-btn>
+         <span v-if="lastExit !== null" class="ml-4">
+           <v-chip
+@@ -224,7 +221,7 @@ export default {
+           this.lastExit = data.exit_code;
+         }
+       } catch (e) {
+-        this.errorMsg = e.response?.data?.error || e.message || 'Lỗi không xác định';
++        this.errorMsg = e.response?.data?.error || e.message || this.$t('winrsUnknownError');
+       } finally {
+         this.running = false;
+       }
