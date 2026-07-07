@@ -4,12 +4,33 @@
 #      Patch thêm inventory type + app type "winrs" (host + cert) làm engine execution.
 # WHAT: db: thêm InventoryWinRS + AppWinRS (+ InventoryTypes case). db_lib: WinRSApp (LocalApp)
 #       chạy script pwsh xuống mỗi host qua quickwin.dev/winrsexec (WinRM cert-auth,
-#       -EncodedCommand). AppFactory: dispatch AppWinRS → WinRSApp. UI: "WinRS Endpoints"
-#       vào dropdown NEW INVENTORY + editor host (cert), app "WinRS" trong constants.
+#       -EncodedCommand). AppFactory: dispatch AppWinRS → WinRSApp. api/projects/inventory.go:
+#       Add/UpdateInventory chấp nhận type "winrs" (nếu thiếu → API từ chối tạo inventory).
+#       UI: "WinRS Endpoints" vào dropdown NEW INVENTORY + editor host (cert), app "WinRS".
 #       go.mod: require quickwin.dev/winrsexec (replace ../winrs-exec).
 # SPEC: docs/L2-specs/core-patches/0009-winrs-app.md
 # BASELINE: v2.18.16
 #
+diff --git a/api/projects/inventory.go b/api/projects/inventory.go
+index 46eb16c..dc84722 100644
+--- a/api/projects/inventory.go
++++ b/api/projects/inventory.go
+@@ -95,6 +95,7 @@ func AddInventory(w http.ResponseWriter, r *http.Request) {
+ 	case db.InventoryStatic,
+ 		db.InventoryStaticYaml,
+ 		db.InventoryFile,
++		db.InventoryWinRS, // QUICKWIN PATCH 0009
+ 		db.InventoryTofuWorkspace,
+ 		db.InventoryTerraformWorkspace:
+ 		break
+@@ -177,6 +178,7 @@ func UpdateInventory(w http.ResponseWriter, r *http.Request) {
+ 	switch inventory.Type {
+ 	case db.InventoryTerraformWorkspace, db.InventoryTofuWorkspace:
+ 	case db.InventoryStatic, db.InventoryStaticYaml:
++	case db.InventoryWinRS: // QUICKWIN PATCH 0009
+ 	case db.InventoryFile:
+ 		if !IsValidInventoryPath(inventory.Inventory) {
+ 			helpers.WriteErrorStatus(w, "Invalid inventory file pathname. Must be: path/to/inventory.", http.StatusBadRequest)
 diff --git a/db/Inventory.go b/db/Inventory.go
 index 03b51d9..695b9b8 100644
 --- a/db/Inventory.go

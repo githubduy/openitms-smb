@@ -22,6 +22,7 @@ qua WinRM certificate-auth.
 | `db/Template.go` | +3 dòng | `AppWinRS TemplateApp = "winrs"`; `InventoryTypes()` +case `AppWinRS → [InventoryWinRS]` |
 | `db_lib/quickwin_winrs_app.go` | MỚI | `WinRSApp` (implements LocalApp): đọc script pwsh từ repo (`Template.Playbook`), parse host từ `Inventory.Inventory` qua `winrsexec.ParseHosts`, mã hoá script `-EncodedCommand` (base64 UTF-16LE), chạy mỗi host qua `winrsexec.Run` (WinRM cert-auth, ctx 5 phút + dial 60s), stream stdout/stderr vào Logger, fail nếu bất kỳ host lỗi |
 | `db_lib/AppFactory.go` | +7 dòng | `case db.AppWinRS → &WinRSApp{Template, Repository, Inventory, Logger}` |
+| `api/projects/inventory.go` | +2 dòng | `AddInventory`/`UpdateInventory` chấp nhận type `winrs` (switch gốc từ chối type lạ → không có dòng này thì API trả 400 "Not supported inventory type", UI không tạo được inventory WinRS) |
 | `go.mod` | +require/replace | `quickwin.dev/winrsexec` (replace `../winrs-exec`) |
 | `web/src/lib/constants.js` | +9 dòng | `winrs` vào APP_ICONS/APP_SHORT_TITLE/APP_TITLE/APP_INVENTORY_TITLE/APP_INVENTORY_TYPES |
 | `web/src/views/project/Inventory.vue` | +5 dòng | `apps: ['ansible','winrs']` (dropdown NEW INVENTORY); `getAppByType('winrs')`; truyền `:app` cho form |
