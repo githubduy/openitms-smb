@@ -16,7 +16,7 @@ rules:
     paths: ["registry/**", "upstream/api/quickwin_registry.go"]
     status: active
   - spec: docs/L1-architecture/gitea-integration.md
-    paths: ["gitea-manager/**"]
+    paths: ["gitea-manager/**", "upstream/api/projects/quickwin_gitea.go"]
     status: active
   - spec: docs/L2-specs/core-patches/0007-service-manager.md
     paths: ["service-manager/**"]

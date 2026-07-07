@@ -1,0 +1,119 @@
+# PATCH: 0008-gitea-autorepo
+# WHY: Moi project moi co san 1 git repo local (ADR-0005). Hook sau khi tao project +
+#      noneKey trong AddProject → tao repo Gitea + dang ky repository. Non-fatal (Gitea tat/loi
+#      → chi log, khong chan tao project). Logic o quickwin.dev/gitea-manager.
+# WHAT: file MOI api/projects/quickwin_gitea.go (quickwinAutoRepo: EnsureOrg+CreateRepo+
+#      CreateRepository, token nhung vao clone URL); projects.go +1 dong goi hook sau View;
+#      go.mod +gitea-manager. Rebase: chen quickwinAutoRepo(store, body, noneKey.ID) trong
+#      AddProject sau khi tao View, truoc block Demo.
+# SPEC: docs/L2-specs/core-patches/0008-gitea-autorepo.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/projects.go b/api/projects/projects.go
+index 840882e..d6be94c 100644
+--- a/api/projects/projects.go
++++ b/api/projects/projects.go
+@@ -371,6 +371,8 @@ func (c *ProjectsController) AddProject(w http.ResponseWriter, r *http.Request)
+ 		return
+ 	}
+ 
++	quickwinAutoRepo(store, body, noneKey.ID) // QUICKWIN PATCH 0008
++
+ 	if bodyWithDemo.Demo {
+ 		err = c.createDemoProject(body.ID, noneKey.ID, store)
+ 
+diff --git a/api/projects/quickwin_gitea.go b/api/projects/quickwin_gitea.go
+new file mode 100644
+index 0000000..f5b0c21
+--- /dev/null
++++ b/api/projects/quickwin_gitea.go
+@@ -0,0 +1,71 @@
++// QUICKWIN PATCH 0008 — auto-repo Gitea khi tạo project.
++// Khi tạo project mới, tự tạo repo local trên Gitea (ADR-0005) + đăng ký làm repository
++// của project → mỗi project có sẵn 1 git repo local, zero-config.
++// Non-fatal: Gitea chưa cấu hình / lỗi → chỉ log, KHÔNG chặn tạo project.
++// Spec: docs/L2-specs/core-patches/0008-gitea-autorepo.md
++package projects
++
++import (
++	"context"
++	"net/url"
++	"os"
++	"time"
++
++	log "github.com/sirupsen/logrus"
++
++	"github.com/semaphoreui/semaphore/db"
++
++	giteamanager "quickwin.dev/gitea-manager"
++)
++
++// quickwinAutoRepo tạo repo Gitea cho project + đăng ký repository (SSHKey None).
++func quickwinAutoRepo(store db.Store, project db.Project, noneKeyID int) {
++	addr := os.Getenv("QUICKWIN_GITEA_ADDR")
++	token := os.Getenv("QUICKWIN_GITEA_TOKEN")
++	if addr == "" || token == "" {
++		return // Gitea không cấu hình → bỏ qua (không phải mọi bản cài đều bật Gitea)
++	}
++	org := os.Getenv("QUICKWIN_GITEA_ORG")
++	if org == "" {
++		org = "openitms"
++	}
++
++	c := giteamanager.NewClient("http://"+addr, token)
++	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
++	defer cancel()
++
++	if err := c.EnsureOrg(ctx, org); err != nil {
++		log.WithError(err).Warn("quickwin: EnsureOrg Gitea fail — bỏ qua auto-repo")
++		return
++	}
++	slug := giteamanager.Slug(project.Name)
++	repo, err := c.CreateRepo(ctx, org, slug, true)
++	if err != nil {
++		log.WithError(err).Warn("quickwin: tạo repo Gitea fail — bỏ qua auto-repo")
++		return
++	}
++
++	// Semaphore clone bằng HTTP + token nhúng (SSHKey None). Token làm username.
++	gitURL := injectToken(repo.CloneURL, token)
++	if _, err := store.CreateRepository(db.Repository{
++		Name:      "Local (Gitea)",
++		ProjectID: project.ID,
++		GitURL:    gitURL,
++		GitBranch: "main",
++		SSHKeyID:  noneKeyID,
++	}); err != nil {
++		log.WithError(err).Warn("quickwin: đăng ký repository local fail")
++		return
++	}
++	log.Infof("quickwin: project %d → repo local Gitea %s", project.ID, repo.FullName)
++}
++
++// injectToken chèn token vào clone URL để clone HTTP không cần nhập mật khẩu.
++func injectToken(cloneURL, token string) string {
++	u, err := url.Parse(cloneURL)
++	if err != nil {
++		return cloneURL
++	}
++	u.User = url.User(token)
++	return u.String()
++}
+diff --git a/go.mod b/go.mod
+index b5443d7..2b9dff1 100644
+--- a/go.mod
++++ b/go.mod
+@@ -94,6 +94,7 @@ require (
+ 	modernc.org/libc v1.66.10 // indirect
+ 	modernc.org/mathutil v1.7.1 // indirect
+ 	modernc.org/memory v1.11.0 // indirect
++	quickwin.dev/gitea-manager v0.0.0
+ 	quickwin.dev/pluginmanager v0.0.0
+ 	quickwin.dev/registry v0.0.0
+ 	quickwin.dev/servicemanager v0.0.0
+@@ -109,3 +110,5 @@ replace quickwin.dev/sdk => ../sdk/go
+ replace quickwin.dev/registry => ../registry
+ 
+ replace quickwin.dev/servicemanager => ../service-manager
++
++replace quickwin.dev/gitea-manager => ../gitea-manager

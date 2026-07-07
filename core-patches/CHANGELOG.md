@@ -3,6 +3,11 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-07 — 0008-gitea-autorepo.patch
+**WHY:** mỗi project mới tự có repo git local (ADR-0005) — Gitea bundle.
+**WHAT:** api/projects/quickwin_gitea.go (hook AddProject → EnsureOrg+CreateRepo+CreateRepository,
+token nhúng clone URL); projects.go +1 dòng; go.mod +gitea-manager. Non-fatal khi Gitea tắt. Spec 0008.
+
 ## 2026-07-07 — 0007-service-manager.patch
 **WHY:** trang Admin xem status + restart service hạ tầng (MariaDB/Gitea/app).
 **WHAT:** api/quickwin_services.go (/api/services list+restart); router +1; go.mod +servicemanager;
