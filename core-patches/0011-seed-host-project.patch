@@ -1,0 +1,120 @@
+# PATCH: 0011-seed-host-project
+# WHY: Sau khi cài, người dùng nên có sẵn 1 project quản trị chính máy host (yêu cầu gốc:
+#      "mặc định có 1 project quản lý chỉnh máy chính host") — không phải tự tạo từ đầu.
+# WHAT: api/projects/quickwin_seed.go MỚI — SeedHostProjectIfEmpty: nếu CHƯA có project nào
+#       (idempotent) + đã có user → tạo project "Host", None key, view All, auto-repo Gitea
+#       (0008), inventory WinRS trỏ 127.0.0.1. cli/cmd/root.go: gọi seed trong runService
+#       sau khi khởi tạo accessKeyService (DB đã migrate).
+# SPEC: docs/L2-specs/core-patches/0011-seed-host-project.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/quickwin_seed.go b/api/projects/quickwin_seed.go
+new file mode 100644
+index 0000000..a1a488b
+--- /dev/null
++++ b/api/projects/quickwin_seed.go
+@@ -0,0 +1,82 @@
++// QUICKWIN PATCH 0011 — seed project "Host" mặc định lần chạy đầu.
++// Mục tiêu: ngay sau khi cài, người dùng đã có sẵn 1 project quản trị chính máy host
++// (inventory WinRS trỏ localhost) — không phải tự tạo từ đầu. Chỉ seed khi CHƯA có project
++// nào (idempotent) và đã có ít nhất 1 user (setup xong). Gọi từ runService (cli/cmd).
++// Spec: docs/L2-specs/core-patches/0011-seed-host-project.md
++package projects
++
++import (
++	"github.com/semaphoreui/semaphore/db"
++	"github.com/semaphoreui/semaphore/services/server"
++	log "github.com/sirupsen/logrus"
++)
++
++// SeedHostProjectIfEmpty tạo project "Host" nếu hệ thống chưa có project nào.
++func SeedHostProjectIfEmpty(store db.Store, accessKeyService server.AccessKeyService) {
++	projects, err := store.GetAllProjects()
++	if err != nil {
++		log.WithError(err).Warn("QUICKWIN seed: không đọc được danh sách project — bỏ qua")
++		return
++	}
++	if len(projects) > 0 {
++		return // đã có project → không seed
++	}
++
++	users, err := store.GetUsers(db.RetrieveQueryParams{})
++	if err != nil || len(users) == 0 {
++		return // setup chưa xong (chưa có user) → để lần sau
++	}
++	owner := users[0]
++	for i := range users {
++		if users[i].Admin {
++			owner = users[i]
++			break
++		}
++	}
++
++	project, err := store.CreateProject(db.Project{Name: "Host — máy chính OpenITMS"})
++	if err != nil {
++		log.WithError(err).Warn("QUICKWIN seed: tạo project Host thất bại")
++		return
++	}
++
++	if _, err = store.CreateProjectUser(db.ProjectUser{
++		ProjectID: project.ID, UserID: owner.ID, Role: db.ProjectOwner,
++	}); err != nil {
++		log.WithError(err).Warn("QUICKWIN seed: gán owner thất bại")
++		return
++	}
++
++	noneKey, err := accessKeyService.Create(db.AccessKey{
++		Name:      "None",
++		Type:      db.AccessKeyNone,
++		ProjectID: &project.ID,
++	})
++	if err != nil {
++		log.WithError(err).Warn("QUICKWIN seed: tạo None key thất bại")
++		return
++	}
++
++	if _, err = store.CreateView(db.View{
++		ProjectID: project.ID,
++		Title:     "All",
++		Position:  0,
++		Type:      db.ViewTypeAll,
++	}); err != nil {
++		log.WithError(err).Warn("QUICKWIN seed: tạo view thất bại")
++		return
++	}
++
++	quickwinAutoRepo(store, project, noneKey.ID) // PATCH 0008 — repo Gitea local
++
++	if _, err = store.CreateInventory(db.Inventory{
++		Name:      "Máy host (WinRS)",
++		ProjectID: project.ID,
++		Type:      db.InventoryWinRS,
++		Inventory: "# Máy chính chạy OpenITMS. Đặt cert WinRM vào certs/host.pem rồi sửa dòng dưới.\n127.0.0.1 cert=host.pem",
++	}); err != nil {
++		log.WithError(err).Warn("QUICKWIN seed: tạo inventory WinRS thất bại")
++	}
++
++	log.WithField("project_id", project.ID).Info("QUICKWIN seed: đã tạo project Host mặc định")
++}
+diff --git a/cli/cmd/root.go b/cli/cmd/root.go
+index 1326bd6..d198583 100644
+--- a/cli/cmd/root.go
++++ b/cli/cmd/root.go
+@@ -11,6 +11,7 @@ import (
+ 	"github.com/gorilla/handlers"
+ 	"github.com/semaphoreui/semaphore/api"
+ 	"github.com/semaphoreui/semaphore/api/helpers"
++	"github.com/semaphoreui/semaphore/api/projects"
+ 	"github.com/semaphoreui/semaphore/api/sockets"
+ 	"github.com/semaphoreui/semaphore/db"
+ 	"github.com/semaphoreui/semaphore/db/factory"
+@@ -95,6 +96,9 @@ func runService() {
+ 		encryptionService,
+ 	)
+ 	accessKeyService := server.NewAccessKeyService(store, encryptionService, store)
++
++	projects.SeedHostProjectIfEmpty(store, accessKeyService) // QUICKWIN PATCH 0011
++
+ 	secretStorageService := server.NewSecretStorageService(store, store, accessKeyService, encryptionService)
+ 	secretStorageSyncScheduler := server.NewSecretStorageSyncScheduler(store, secretStorageService)
+ 	environmentService := server.NewEnvironmentService(store, encryptionService)

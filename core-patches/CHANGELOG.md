@@ -3,6 +3,12 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-07 — 0011-seed-host-project.patch
+**WHY:** yêu cầu gốc "mặc định có 1 project quản lý chỉnh máy chính host" — có sẵn sau cài đặt.
+**WHAT:** api/projects/quickwin_seed.go (SeedHostProjectIfEmpty: chưa có project + đã có user →
+tạo project "Host" + None key + view All + auto-repo Gitea + inventory WinRS trỏ 127.0.0.1,
+idempotent); cli/cmd/root.go gọi seed trong runService sau accessKeyService. Spec 0011.
+
 ## 2026-07-07 — 0010-winrs-console.patch
 **WHY:** gõ lệnh nhanh xuống 1 host Windows mà không cần tạo template + inventory + task.
 **WHAT:** api/projects/quickwin_winrs.go (GetWinRSCerts list *.pem + WinRSExec chạy 1 lệnh pwsh
