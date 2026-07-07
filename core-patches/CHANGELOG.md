@@ -3,6 +3,12 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-08 — 0018-network-discovery.patch
+**WHY:** autodiscovery subnet — quét dãy mạng tìm IP online + phân loại; default mỗi project có 192.168.0.0/16.
+**WHAT:** quickwin_discovery.go (scanner TCP-probe bounded + deadline; phân loại managed[inventory
+WinRS]/exception/gateway[.1/.254]/unmanaged; config JSON discovery dir); router +5 route /discovery/*;
+UI NetworkDiscovery.vue (subnet CRUD, scan, bảng device, legend, ignore) + nav + tooltip + i18n. Spec 0018.
+
 ## 2026-07-07 — 0017-winrs-history.patch
 **WHY:** WinRS Console nhớ lần gõ trước — last-run tự prefill + lịch sử execute lưu tạm ra file.
 **WHAT:** quickwin_winrs_history.go (ghi JSONL ts/host/command/exit vào tmp dir project, giữ 100 dòng;

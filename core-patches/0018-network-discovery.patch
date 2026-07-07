@@ -1,0 +1,731 @@
+# PATCH: 0018-network-discovery
+# WHY: Ngoài nhập subnet thủ công, cho phép AUTODISCOVERY — quét dãy mạng tìm IP online rồi phân
+#      loại managed/unmanaged/exception/gateway. Mặc định mỗi project có subnet 192.168.0.0/16.
+# WHAT: quickwin_discovery.go MỚI — scanner TCP-probe (bounded concurrency + deadline) quét CIDR;
+#       phân loại theo inventory WinRS (managed) + exceptions + heuristic gateway (.1/.254); lưu
+#       config JSON (discovery dir, không đổi schema DB); handlers Get/AddSubnet/RemoveSubnet/Scan/
+#       SetDevice. router +5 route /discovery/*. UI NetworkDiscovery.vue (subnet CRUD + scan + bảng
+#       device + legend + ignore) + route + nav "Network Discovery" + tooltip + i18n en.js.
+# SPEC: docs/L2-specs/core-patches/0018-network-discovery.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/quickwin_discovery.go b/api/projects/quickwin_discovery.go
+new file mode 100644
+index 0000000..944c8c8
+--- /dev/null
++++ b/api/projects/quickwin_discovery.go
+@@ -0,0 +1,364 @@
++// QUICKWIN PATCH 0018 — Network Autodiscovery.
++// Ngoài nhập subnet thủ công, cho phép QUÉT dãy mạng (CIDR): probe TCP các cổng phổ biến để
++// tìm IP đang online, rồi phân loại: managed (đã trong inventory WinRS), unmanaged (online chưa
++// quản lý), exception (bỏ qua), gateway (router, heuristic .1/.254). Mặc định mỗi project có sẵn
++// subnet 192.168.0.0/16. Cấu hình lưu file JSON (discovery dir), không cần đổi schema DB.
++// Spec: docs/L2-specs/core-patches/0018-network-discovery.md
++package projects
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"net"
++	"net/http"
++	"os"
++	"path/filepath"
++	"sort"
++	"strings"
++	"sync"
++	"time"
++
++	"github.com/semaphoreui/semaphore/api/helpers"
++	"github.com/semaphoreui/semaphore/db"
++
++	"quickwin.dev/winrsexec"
++)
++
++const defaultDiscoverySubnet = "192.168.0.0/16"
++
++// Cổng probe để xác định host online + gợi ý loại thiết bị.
++var discoveryPorts = []int{445, 3389, 22, 5985, 5986, 80, 443}
++
++const (
++	discoveryConcurrency = 256
++	discoveryDialTimeout = 300 * time.Millisecond
++	discoveryDeadline    = 60 * time.Second
++	discoveryMaxHosts    = 70000 // /16 ~ 65536; chặn dãy quá lớn
++)
++
++type discoveryDevice struct {
++	IP       string `json:"ip"`
++	Online   bool   `json:"online"`
++	Ports    []int  `json:"ports"`
++	Hostname string `json:"hostname,omitempty"`
++	Status   string `json:"status"` // managed | unmanaged | exception | gateway
++	Note     string `json:"note,omitempty"`
++}
++
++type discoveryScan struct {
++	TS        int64             `json:"ts"`
++	CIDR      string            `json:"cidr"`
++	Scanned   int               `json:"scanned"`
++	Total     int               `json:"total"`
++	Completed bool              `json:"completed"`
++	Devices   []discoveryDevice `json:"devices"`
++}
++
++type discoveryConfig struct {
++	Subnets    []string          `json:"subnets"`
++	Exceptions []string          `json:"exceptions"`
++	Notes      map[string]string `json:"notes,omitempty"`
++	LastScan   *discoveryScan    `json:"last_scan,omitempty"`
++}
++
++func discoveryDir() string {
++	d := os.Getenv("QUICKWIN_DISCOVERY_DIR")
++	if d == "" {
++		d = "discovery"
++	}
++	return d
++}
++
++func discoveryFile(projectID int) string {
++	return filepath.Join(discoveryDir(), fmt.Sprintf("project_%d.json", projectID))
++}
++
++func loadDiscovery(projectID int) discoveryConfig {
++	cfg := discoveryConfig{Subnets: []string{defaultDiscoverySubnet}, Notes: map[string]string{}}
++	data, err := os.ReadFile(discoveryFile(projectID))
++	if err == nil {
++		_ = json.Unmarshal(data, &cfg)
++	}
++	if cfg.Subnets == nil {
++		cfg.Subnets = []string{defaultDiscoverySubnet}
++	}
++	if cfg.Notes == nil {
++		cfg.Notes = map[string]string{}
++	}
++	if cfg.Exceptions == nil {
++		cfg.Exceptions = []string{}
++	}
++	return cfg
++}
++
++func saveDiscovery(projectID int, cfg discoveryConfig) error {
++	_ = os.MkdirAll(discoveryDir(), 0755)
++	b, err := json.MarshalIndent(cfg, "", "  ")
++	if err != nil {
++		return err
++	}
++	return os.WriteFile(discoveryFile(projectID), b, 0600)
++}
++
++// managedHosts trả set IP/host đã có trong inventory WinRS của project (đã "managed").
++func managedHosts(r *http.Request, projectID int) map[string]bool {
++	set := map[string]bool{}
++	invs, err := helpers.Store(r).GetInventories(projectID, db.RetrieveQueryParams{}, []db.InventoryType{db.InventoryWinRS})
++	if err != nil {
++		return set
++	}
++	for _, inv := range invs {
++		for _, h := range winrsexec.ParseHosts(inv.Inventory, "") {
++			set[h.Addr] = true
++		}
++	}
++	return set
++}
++
++func contains(list []string, v string) bool {
++	for _, x := range list {
++		if x == v {
++			return true
++		}
++	}
++	return false
++}
++
++// isGatewayGuess: heuristic router/gateway (octet cuối .1 hoặc .254).
++func isGatewayGuess(ip string) bool {
++	p := strings.Split(ip, ".")
++	if len(p) != 4 {
++		return false
++	}
++	return p[3] == "1" || p[3] == "254"
++}
++
++func incIP(ip net.IP) {
++	for i := len(ip) - 1; i >= 0; i-- {
++		ip[i]++
++		if ip[i] != 0 {
++			break
++		}
++	}
++}
++
++// probeHost dial vài cổng; online nếu bất kỳ cổng mở HOẶC bị refuse (host up, cổng đóng).
++func probeHost(ctx context.Context, ip string) discoveryDevice {
++	d := discoveryDevice{IP: ip}
++	for _, p := range discoveryPorts {
++		select {
++		case <-ctx.Done():
++			return d
++		default:
++		}
++		dialer := net.Dialer{Timeout: discoveryDialTimeout}
++		conn, err := dialer.DialContext(ctx, "tcp", net.JoinHostPort(ip, fmt.Sprint(p)))
++		if err == nil {
++			conn.Close()
++			d.Online = true
++			d.Ports = append(d.Ports, p)
++		} else if strings.Contains(err.Error(), "refused") {
++			d.Online = true // host phản hồi RST -> đang bật, cổng đóng
++		}
++	}
++	return d
++}
++
++// scanCIDR quét dãy mạng, trả các host online (bounded concurrency + deadline).
++func scanCIDR(cidr string) (*discoveryScan, error) {
++	ip, ipnet, err := net.ParseCIDR(cidr)
++	if err != nil {
++		return nil, fmt.Errorf("CIDR không hợp lệ: %s", cidr)
++	}
++
++	var hosts []string
++	cur := ip.Mask(ipnet.Mask)
++	for c := make(net.IP, len(cur)); ; {
++		copy(c, cur)
++		if !ipnet.Contains(c) {
++			break
++		}
++		hosts = append(hosts, c.String())
++		if len(hosts) > discoveryMaxHosts {
++			return nil, fmt.Errorf("dãy quá lớn (>%d host) — thu hẹp subnet", discoveryMaxHosts)
++		}
++		incIP(cur)
++	}
++	// Bỏ network + broadcast của /x (x<31)
++	ones, bits := ipnet.Mask.Size()
++	if bits-ones >= 2 && len(hosts) >= 2 {
++		hosts = hosts[1 : len(hosts)-1]
++	}
++
++	scan := &discoveryScan{CIDR: cidr, Total: len(hosts), TS: time.Now().Unix()}
++
++	ctx, cancel := context.WithTimeout(context.Background(), discoveryDeadline)
++	defer cancel()
++
++	sem := make(chan struct{}, discoveryConcurrency)
++	results := make([]discoveryDevice, len(hosts))
++	var wg sync.WaitGroup
++	var scanned int
++	var mu sync.Mutex
++
++	for i, h := range hosts {
++		if ctx.Err() != nil {
++			break // deadline: dừng phát thêm probe
++		}
++		wg.Add(1)
++		sem <- struct{}{}
++		go func(idx int, host string) {
++			defer wg.Done()
++			defer func() { <-sem }()
++			results[idx] = probeHost(ctx, host)
++			mu.Lock()
++			scanned++
++			mu.Unlock()
++		}(i, h)
++	}
++	wg.Wait()
++
++	scan.Scanned = scanned
++	scan.Completed = ctx.Err() == nil
++	for _, d := range results {
++		if d.Online {
++			scan.Devices = append(scan.Devices, d)
++		}
++	}
++	return scan, nil
++}
++
++// classify gán status cho mỗi device theo thứ tự ưu tiên exception > managed > gateway > unmanaged.
++func classify(scan *discoveryScan, cfg discoveryConfig, managed map[string]bool) {
++	for i := range scan.Devices {
++		ip := scan.Devices[i].IP
++		scan.Devices[i].Note = cfg.Notes[ip]
++		switch {
++		case contains(cfg.Exceptions, ip):
++			scan.Devices[i].Status = "exception"
++		case managed[ip]:
++			scan.Devices[i].Status = "managed"
++		case isGatewayGuess(ip):
++			scan.Devices[i].Status = "gateway"
++		default:
++			scan.Devices[i].Status = "unmanaged"
++		}
++	}
++}
++
++// ---- HTTP handlers ----
++
++// GetDiscovery trả cấu hình discovery (subnets, exceptions, lần quét gần nhất đã phân loại lại).
++func GetDiscovery(w http.ResponseWriter, r *http.Request) {
++	project := helpers.GetFromContext(r, "project").(db.Project)
++	cfg := loadDiscovery(project.ID)
++	if cfg.LastScan != nil {
++		classify(cfg.LastScan, cfg, managedHosts(r, project.ID))
++	}
++	helpers.WriteJSON(w, http.StatusOK, cfg)
++}
++
++type subnetReq struct {
++	CIDR string `json:"cidr"`
++}
++
++// AddDiscoverySubnet thêm 1 subnet (validate CIDR).
++func AddDiscoverySubnet(w http.ResponseWriter, r *http.Request) {
++	project := helpers.GetFromContext(r, "project").(db.Project)
++	var req subnetReq
++	if !helpers.Bind(w, r, &req) {
++		return
++	}
++	req.CIDR = strings.TrimSpace(req.CIDR)
++	if _, _, err := net.ParseCIDR(req.CIDR); err != nil {
++		helpers.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "CIDR không hợp lệ (vd 192.168.1.0/24)"})
++		return
++	}
++	cfg := loadDiscovery(project.ID)
++	if !contains(cfg.Subnets, req.CIDR) {
++		cfg.Subnets = append(cfg.Subnets, req.CIDR)
++		sort.Strings(cfg.Subnets)
++		_ = saveDiscovery(project.ID, cfg)
++	}
++	helpers.WriteJSON(w, http.StatusOK, cfg)
++}
++
++// RemoveDiscoverySubnet xoá 1 subnet.
++func RemoveDiscoverySubnet(w http.ResponseWriter, r *http.Request) {
++	project := helpers.GetFromContext(r, "project").(db.Project)
++	var req subnetReq
++	if !helpers.Bind(w, r, &req) {
++		return
++	}
++	cfg := loadDiscovery(project.ID)
++	out := cfg.Subnets[:0]
++	for _, s := range cfg.Subnets {
++		if s != req.CIDR {
++			out = append(out, s)
++		}
++	}
++	cfg.Subnets = out
++	_ = saveDiscovery(project.ID, cfg)
++	helpers.WriteJSON(w, http.StatusOK, cfg)
++}
++
++// ScanDiscovery quét 1 CIDR (đồng bộ, bounded) → phân loại → lưu last_scan.
++func ScanDiscovery(w http.ResponseWriter, r *http.Request) {
++	project := helpers.GetFromContext(r, "project").(db.Project)
++	var req subnetReq
++	if !helpers.Bind(w, r, &req) {
++		return
++	}
++	scan, err := scanCIDR(strings.TrimSpace(req.CIDR))
++	if err != nil {
++		helpers.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
++		return
++	}
++	cfg := loadDiscovery(project.ID)
++	classify(scan, cfg, managedHosts(r, project.ID))
++	cfg.LastScan = scan
++	_ = saveDiscovery(project.ID, cfg)
++	helpers.WriteJSON(w, http.StatusOK, scan)
++}
++
++type deviceReq struct {
++	IP     string `json:"ip"`
++	Status string `json:"status"` // "exception" để bỏ qua, "unmanaged" để bỏ exception
++	Note   string `json:"note"`
++}
++
++// SetDiscoveryDevice đánh dấu 1 IP là exception (bỏ qua) hoặc gỡ, + ghi chú.
++func SetDiscoveryDevice(w http.ResponseWriter, r *http.Request) {
++	project := helpers.GetFromContext(r, "project").(db.Project)
++	var req deviceReq
++	if !helpers.Bind(w, r, &req) {
++		return
++	}
++	req.IP = strings.TrimSpace(req.IP)
++	if req.IP == "" {
++		helpers.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "thiếu ip"})
++		return
++	}
++	cfg := loadDiscovery(project.ID)
++	// exception toggle
++	inExc := contains(cfg.Exceptions, req.IP)
++	if req.Status == "exception" && !inExc {
++		cfg.Exceptions = append(cfg.Exceptions, req.IP)
++	} else if req.Status != "exception" && inExc {
++		out := cfg.Exceptions[:0]
++		for _, x := range cfg.Exceptions {
++			if x != req.IP {
++				out = append(out, x)
++			}
++		}
++		cfg.Exceptions = out
++	}
++	if req.Note != "" {
++		cfg.Notes[req.IP] = req.Note
++	} else {
++		delete(cfg.Notes, req.IP)
++	}
++	_ = saveDiscovery(project.ID, cfg)
++	helpers.WriteJSON(w, http.StatusOK, cfg)
++}
+diff --git a/api/router.go b/api/router.go
+index 5b1b69d..2c9962b 100644
+--- a/api/router.go
++++ b/api/router.go
+@@ -333,6 +333,13 @@ func Route(
+ 	// QUICKWIN PATCH 0017 — lịch sử chạy WinRS Console (file tạm project)
+ 	projectUserAPI.Path("/winrs/history").HandlerFunc(projects.GetWinRSHistory).Methods("GET", "HEAD")
+ 
++	// QUICKWIN PATCH 0018 — network autodiscovery (quét subnet, phân loại device)
++	projectUserAPI.Path("/discovery").HandlerFunc(projects.GetDiscovery).Methods("GET", "HEAD")
++	projectUserAPI.Path("/discovery/subnet").HandlerFunc(projects.AddDiscoverySubnet).Methods("POST")
++	projectUserAPI.Path("/discovery/subnet/remove").HandlerFunc(projects.RemoveDiscoverySubnet).Methods("POST")
++	projectUserAPI.Path("/discovery/scan").HandlerFunc(projects.ScanDiscovery).Methods("POST")
++	projectUserAPI.Path("/discovery/device").HandlerFunc(projects.SetDiscoveryDevice).Methods("POST")
++
+ 	projectUserAPI.Path("/environment").HandlerFunc(projects.GetEnvironment).Methods("GET", "HEAD")
+ 	projectUserAPI.Path("/environment").HandlerFunc(environmentController.AddEnvironment).Methods("POST")
+ 
+diff --git a/web/src/App.vue b/web/src/App.vue
+index 9d3d930..0452bf6 100644
+--- a/web/src/App.vue
++++ b/web/src/App.vue
+@@ -1213,6 +1213,13 @@ export default {
+             to: `${base}/winrs_console`,
+             testId: 'sidebar-winrs-console',
+           },
++          {
++            key: 'network_discovery',
++            icon: 'mdi-lan',
++            title: this.$t('discoveryTitle'),
++            to: `${base}/network_discovery`,
++            testId: 'sidebar-network-discovery',
++          },
+           {
+             key: 'environment',
+             icon: 'mdi-code-braces',
+@@ -1279,6 +1286,7 @@ export default {
+         schedule: this.$t('tooltipSchedule'),
+         inventory: this.$t('tooltipInventory'),
+         winrs_console: this.$t('tooltipWinrsConsole'),
++        network_discovery: this.$t('tooltipNetworkDiscovery'),
+         environment: this.$t('tooltipEnvironment'),
+         keys: this.$t('tooltipKeys'),
+         repositories: this.$t('tooltipRepositories'),
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index d595663..b71662d 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -16,6 +16,28 @@ export default {
+   tooltipIntegrations: 'Connect OpenITMS to external services (webhooks) to trigger tasks automatically.',
+   tooltipTeam: 'Manage project members and permissions — who can view / run / edit.',
+   tooltipRunners: 'Worker machines that execute tasks when not run directly on the OpenITMS server.',
++  tooltipNetworkDiscovery: 'Scan a network range to find online devices and see which are already '
++    + 'managed, which are new, gateways/routers, or ignored.',
++
++  // QUICKWIN — Network Discovery
++  note: 'Note',
++  discoveryTitle: 'Network Discovery',
++  discoveryHint: 'Scan a network range (CIDR) to find online devices and classify them: already '
++    + 'managed, new (unmanaged), ignored, or gateway/router.',
++  discoverySubnets: 'Subnets',
++  discoveryAddSubnet: 'Add subnet, e.g. 192.168.1.0/24',
++  discoveryScan: 'Scan',
++  discoveryDone: 'complete',
++  discoveryPartial: 'partial (narrow the range)',
++  discoveryLargeWarn: 'Large range — the scan may be partial. A /24 (256 hosts) scans fastest.',
++  discoveryPorts: 'Open ports',
++  discoveryNoDevices: 'No online devices yet. Add a subnet and run a scan.',
++  discoveryIgnore: 'Ignore',
++  discoveryUnignore: 'Un-ignore',
++  statusManaged: 'Managed',
++  statusUnmanaged: 'New',
++  statusGateway: 'Gateway',
++  statusException: 'Ignored',
+ 
+   // QUICKWIN — WinRS Console + endpoint enrollment + local repo (i18n)
+   winrsConsoleTitle: 'WinRS Console',
+diff --git a/web/src/router/index.js b/web/src/router/index.js
+index 2c183af..9065687 100644
+--- a/web/src/router/index.js
++++ b/web/src/router/index.js
+@@ -17,6 +17,7 @@ import TemplateView from '../views/project/TemplateView.vue';
+ import Environment from '../views/project/Environment.vue';
+ import Inventory from '../views/project/Inventory.vue';
+ import WinRSConsole from '../views/project/WinRSConsole.vue';
++import NetworkDiscovery from '../views/project/NetworkDiscovery.vue';
+ import Keys from '../views/project/Keys.vue';
+ import Repositories from '../views/project/Repositories.vue';
+ import Team from '../views/project/Team.vue';
+@@ -133,6 +134,10 @@ const routes = [
+     path: '/project/:projectId/winrs_console',
+     component: WinRSConsole,
+   },
++  {
++    path: '/project/:projectId/network_discovery',
++    component: NetworkDiscovery,
++  },
+   {
+     path: '/project/:projectId/integrations',
+     component: Integrations,
+diff --git a/web/src/views/project/NetworkDiscovery.vue b/web/src/views/project/NetworkDiscovery.vue
+new file mode 100644
+index 0000000..4e4ca24
+--- /dev/null
++++ b/web/src/views/project/NetworkDiscovery.vue
+@@ -0,0 +1,244 @@
++<template xmlns:v-slot="http://www.w3.org/1999/XSL/Transform">
++  <div>
++    <v-toolbar flat>
++      <v-app-bar-nav-icon @click="showDrawer()"></v-app-bar-nav-icon>
++      <v-toolbar-title>
++        <v-icon color="primary" class="mr-2">mdi-lan</v-icon>
++        {{ $t('discoveryTitle') }}
++      </v-toolbar-title>
++    </v-toolbar>
++
++    <v-divider />
++
++    <div class="pa-4" style="max-width: 1100px; margin: auto;">
++      <v-alert type="info" dense text class="mb-4">{{ $t('discoveryHint') }}</v-alert>
++
++      <!-- Subnets -->
++      <div class="subtitle-2 mb-1">{{ $t('discoverySubnets') }}</div>
++      <div class="mb-2">
++        <v-chip
++          v-for="s in subnets"
++          :key="s"
++          class="mr-2 mb-2"
++          close
++          @click:close="removeSubnet(s)"
++        >
++          <v-icon left small @click.stop="startScan(s)">mdi-radar</v-icon>
++          {{ s }}
++        </v-chip>
++        <span v-if="subnets.length === 0" class="caption grey--text">—</span>
++      </div>
++      <v-row class="mb-2" no-gutters>
++        <v-col cols="6" sm="4">
++          <v-text-field
++            v-model.trim="newSubnet"
++            :placeholder="$t('discoveryAddSubnet')"
++            dense
++            outlined
++            hide-details
++            @keyup.enter="addSubnet"
++          ></v-text-field>
++        </v-col>
++        <v-col cols="auto" class="ml-2">
++          <v-btn :disabled="!newSubnet" @click="addSubnet" outlined>
++            <v-icon left>mdi-plus</v-icon>{{ $t('add') }}
++          </v-btn>
++        </v-col>
++      </v-row>
++
++      <v-divider class="my-4" />
++
++      <!-- Scan -->
++      <v-row no-gutters align="center">
++        <v-col cols="6" sm="4">
++          <v-text-field
++            v-model.trim="scanCidr"
++            label="CIDR"
++            placeholder="192.168.1.0/24"
++            dense
++            outlined
++            hide-details
++          ></v-text-field>
++        </v-col>
++        <v-col cols="auto" class="ml-2">
++          <v-btn
++            color="primary"
++            :loading="scanning"
++            :disabled="scanning || !scanCidr"
++            @click="scan"
++          >
++            <v-icon left>mdi-radar</v-icon>{{ $t('discoveryScan') }}
++          </v-btn>
++        </v-col>
++        <v-col cols="auto" class="ml-4 caption" v-if="lastScan">
++          {{ lastScan.scanned }}/{{ lastScan.total }} ·
++          <span :class="lastScan.completed ? 'success--text' : 'warning--text'">
++            {{ lastScan.completed ? $t('discoveryDone') : $t('discoveryPartial') }}
++          </span>
++        </v-col>
++      </v-row>
++      <div v-if="rangeWarn" class="caption warning--text mt-1">{{ $t('discoveryLargeWarn') }}</div>
++      <div v-if="errorMsg" class="caption error--text mt-1">{{ errorMsg }}</div>
++
++      <!-- Legend -->
++      <div class="mt-3 mb-2">
++        <v-chip x-small color="success" text-color="white" class="mr-1">
++          {{ $t('statusManaged') }}
++        </v-chip>
++        <v-chip x-small color="warning" text-color="white" class="mr-1">
++          {{ $t('statusUnmanaged') }}
++        </v-chip>
++        <v-chip x-small color="info" text-color="white" class="mr-1">
++          {{ $t('statusGateway') }}
++        </v-chip>
++        <v-chip x-small color="grey" text-color="white">{{ $t('statusException') }}</v-chip>
++      </div>
++
++      <!-- Results -->
++      <v-simple-table dense v-if="devices.length">
++        <template v-slot:default>
++          <thead>
++            <tr>
++              <th>IP</th>
++              <th>{{ $t('status') }}</th>
++              <th>{{ $t('discoveryPorts') }}</th>
++              <th>{{ $t('note') }}</th>
++              <th class="text-right">{{ $t('actions') }}</th>
++            </tr>
++          </thead>
++          <tbody>
++            <tr v-for="d in devices" :key="d.ip">
++              <td><code>{{ d.ip }}</code></td>
++              <td>
++                <v-chip x-small :color="statusColor(d.status)" text-color="white">
++                  {{ $t('status' + capitalize(d.status)) }}
++                </v-chip>
++              </td>
++              <td class="caption">{{ (d.ports || []).join(', ') }}</td>
++              <td class="caption">{{ d.note }}</td>
++              <td class="text-right">
++                <v-btn
++                  v-if="d.status !== 'exception'"
++                  x-small text
++                  @click="setException(d.ip, true)"
++                >{{ $t('discoveryIgnore') }}</v-btn>
++                <v-btn
++                  v-else
++                  x-small text color="primary"
++                  @click="setException(d.ip, false)"
++                >{{ $t('discoveryUnignore') }}</v-btn>
++              </td>
++            </tr>
++          </tbody>
++        </template>
++      </v-simple-table>
++      <div v-else class="caption grey--text mt-2">{{ $t('discoveryNoDevices') }}</div>
++    </div>
++  </div>
++</template>
++<script>
++/* eslint-disable import/no-extraneous-dependencies */
++import axios from 'axios';
++import EventBus from '@/event-bus';
++
++export default {
++  props: {
++    projectId: Number,
++  },
++
++  data() {
++    return {
++      subnets: [],
++      exceptions: [],
++      notes: {},
++      newSubnet: '',
++      scanCidr: '',
++      scanning: false,
++      lastScan: null,
++      devices: [],
++      errorMsg: null,
++    };
++  },
++
++  computed: {
++    rangeWarn() {
++      const m = /\/(\d+)$/.exec(this.scanCidr || '');
++      return m && Number(m[1]) < 23; // rộng hơn /23 (>512 host)
++    },
++  },
++
++  async created() {
++    await this.load();
++  },
++
++  methods: {
++    showDrawer() { EventBus.$emit('i-show-drawer'); },
++    capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; },
++    statusColor(s) {
++      return {
++        managed: 'success', unmanaged: 'warning', gateway: 'info', exception: 'grey',
++      }[s] || 'grey';
++    },
++
++    apply(cfg) {
++      this.subnets = cfg.subnets || [];
++      this.exceptions = cfg.exceptions || [];
++      this.notes = cfg.notes || {};
++      if (cfg.last_scan) {
++        this.lastScan = cfg.last_scan;
++        this.devices = cfg.last_scan.devices || [];
++        if (!this.scanCidr) this.scanCidr = cfg.last_scan.cidr;
++      }
++    },
++
++    async load() {
++      try {
++        const { data } = await axios.get(`/api/project/${this.projectId}/discovery`);
++        this.apply(data);
++        if (!this.scanCidr && this.subnets.length) this.scanCidr = this.subnets[0];
++      } catch (e) { this.errorMsg = e.message; }
++    },
++
++    async addSubnet() {
++      if (!this.newSubnet) return;
++      try {
++        const { data } = await axios.post(`/api/project/${this.projectId}/discovery/subnet`, { cidr: this.newSubnet });
++        this.apply(data);
++        this.newSubnet = '';
++      } catch (e) { this.errorMsg = e.response?.data?.error || e.message; }
++    },
++
++    async removeSubnet(cidr) {
++      const { data } = await axios.post(`/api/project/${this.projectId}/discovery/subnet/remove`, { cidr });
++      this.apply(data);
++    },
++
++    startScan(cidr) {
++      this.scanCidr = cidr;
++      this.scan();
++    },
++
++    async scan() {
++      if (!this.scanCidr) return;
++      this.scanning = true;
++      this.errorMsg = null;
++      try {
++        const { data } = await axios.post(`/api/project/${this.projectId}/discovery/scan`, { cidr: this.scanCidr });
++        this.lastScan = data;
++        this.devices = data.devices || [];
++      } catch (e) { this.errorMsg = e.response?.data?.error || e.message; }
++      this.scanning = false;
++    },
++
++    async setException(ip, on) {
++      const { data } = await axios.post(`/api/project/${this.projectId}/discovery/device`, {
++        ip, status: on ? 'exception' : 'unmanaged', note: this.notes[ip] || '',
++      });
++      this.exceptions = data.exceptions || [];
++      // cập nhật lại status hiển thị mà không cần quét lại
++      const d = this.devices.find((x) => x.ip === ip);
++      if (d) d.status = on ? 'exception' : 'unmanaged';
++    },
++  },
++};
++</script>
