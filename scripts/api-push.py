@@ -6,7 +6,7 @@
 # SAU KHI PUSH: commit sha remote se KHAC local (GitHub tai tao object) —
 # script in mapping; chay `git fetch && git reset --hard origin/main` de dong bo.
 # Token CHI doc tu env — khong bao gio hardcode.
-import json, os, subprocess, sys, tempfile
+import json, os, subprocess, sys, tempfile, time
 from base64 import b64encode
 
 REPO = 'githubduy/openitms-smb'
@@ -29,13 +29,23 @@ def api(method, path, payload=None):
         tmp = tempfile.NamedTemporaryFile('w', suffix='.json', delete=False, encoding='utf-8')
         json.dump(payload, tmp); tmp.close()
         args += ['--data', '@' + tmp.name.replace('\\', '/')]
-    r = subprocess.run(args, capture_output=True)
-    if tmp: os.unlink(tmp.name)
-    body = r.stdout.decode('utf-8', errors='replace')
-    try:
-        return json.loads(body)
-    except Exception:
-        raise RuntimeError(f'API {path}: non-json: {body[:200]}')
+    # Proxy DLP doi khi tra rong/non-json cho POST -> retry backoff (idempotent:
+    # blob/tree content-addressed -> cung sha; commit tao lai vo hai neu ref chua update).
+    last = ''
+    for attempt in range(6):
+        r = subprocess.run(args, capture_output=True)
+        body = r.stdout.decode('utf-8', errors='replace')
+        try:
+            parsed = json.loads(body)
+            if tmp:
+                os.unlink(tmp.name)
+            return parsed
+        except Exception:
+            last = body[:120]
+            time.sleep(2 + attempt * 2)
+    if tmp:
+        os.unlink(tmp.name)
+    raise RuntimeError(f'API {path}: non-json sau 6 lan thu: {last!r}')
 
 # incremental: chỉ đẩy commit local chưa có trên remote, nối vào origin/main
 try:
