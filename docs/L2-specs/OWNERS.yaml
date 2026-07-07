@@ -15,6 +15,9 @@ rules:
   - spec: docs/L2-specs/registry-format.md
     paths: ["registry/**", "upstream/api/quickwin_registry.go"]
     status: active
+  - spec: docs/L1-architecture/gitea-integration.md
+    paths: ["gitea-manager/**"]
+    status: active
   - spec: docs/L2-specs/installer-linux.md
     paths: ["installer/**"]
     status: active
