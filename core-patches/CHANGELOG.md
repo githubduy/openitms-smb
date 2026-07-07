@@ -3,6 +3,14 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-07 — 0009-winrs-app.patch
+**WHY:** OpenITMS chạy pwsh trực tiếp xuống Windows host qua WinRM (pwsh → winrs) — Semaphore gốc
+chỉ có inventory/app hướng-Ansible, thiếu đường chạy này.
+**WHAT:** db: InventoryWinRS + AppWinRS (+InventoryTypes). db_lib: WinRSApp (LocalApp) chạy script
+pwsh xuống mỗi host qua quickwin.dev/winrsexec (WinRM cert-auth, -EncodedCommand); AppFactory
+dispatch AppWinRS. UI: "WinRS Endpoints" trong NEW INVENTORY + editor host/cert, app "WinRS"
+(constants). go.mod +winrsexec (replace ../winrs-exec). Spec 0009.
+
 ## 2026-07-07 — 0008-gitea-autorepo.patch
 **WHY:** mỗi project mới tự có repo git local (ADR-0005) — Gitea bundle.
 **WHAT:** api/projects/quickwin_gitea.go (hook AddProject → EnsureOrg+CreateRepo+CreateRepository,

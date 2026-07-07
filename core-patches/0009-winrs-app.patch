@@ -1,0 +1,432 @@
+# PATCH: 0009-winrs-app
+# WHY: OpenITMS thực thi trực tiếp xuống Windows host qua WinRM (pwsh → winrs), không cần
+#      Ansible. Semaphore gốc chỉ có inventory/app hướng-Ansible nên thiếu đường chạy này.
+#      Patch thêm inventory type + app type "winrs" (host + cert) làm engine execution.
+# WHAT: db: thêm InventoryWinRS + AppWinRS (+ InventoryTypes case). db_lib: WinRSApp (LocalApp)
+#       chạy script pwsh xuống mỗi host qua quickwin.dev/winrsexec (WinRM cert-auth,
+#       -EncodedCommand). AppFactory: dispatch AppWinRS → WinRSApp. UI: "WinRS Endpoints"
+#       vào dropdown NEW INVENTORY + editor host (cert), app "WinRS" trong constants.
+#       go.mod: require quickwin.dev/winrsexec (replace ../winrs-exec).
+# SPEC: docs/L2-specs/core-patches/0009-winrs-app.md
+# BASELINE: v2.18.16
+#
+diff --git a/db/Inventory.go b/db/Inventory.go
+index 03b51d9..695b9b8 100644
+--- a/db/Inventory.go
++++ b/db/Inventory.go
+@@ -7,6 +7,7 @@ const (
+ 	InventoryStaticYaml InventoryType = "static-yaml"
+ 	// InventoryFile means that it is path to the Ansible inventory file
+ 	InventoryFile                InventoryType = "file"
++	InventoryWinRS               InventoryType = "winrs" // QUICKWIN: endpoint Windows (host + cert)
+ 	InventoryTerraformWorkspace  InventoryType = "terraform-workspace"
+ 	InventoryTofuWorkspace       InventoryType = "tofu-workspace"
+ 	InventoryTerragruntWorkspace InventoryType = "terragrunt-workspace"
+diff --git a/db/Template.go b/db/Template.go
+index bf28d9f..721392f 100644
+--- a/db/Template.go
++++ b/db/Template.go
+@@ -26,6 +26,7 @@ const (
+ 	AppPowerShell TemplateApp = "powershell"
+ 	AppPython     TemplateApp = "python"
+ 	AppPulumi     TemplateApp = "pulumi"
++	AppWinRS      TemplateApp = "winrs" // QUICKWIN: chạy pwsh/lệnh xuống Windows qua cert
+ )
+ 
+ func (t TemplateApp) InventoryTypes() []InventoryType {
+@@ -38,6 +39,8 @@ func (t TemplateApp) InventoryTypes() []InventoryType {
+ 		return []InventoryType{InventoryTofuWorkspace}
+ 	case AppTerragrunt:
+ 		return []InventoryType{InventoryTerragruntWorkspace}
++	case AppWinRS:
++		return []InventoryType{InventoryWinRS}
+ 	default:
+ 		return []InventoryType{}
+ 	}
+diff --git a/db_lib/AppFactory.go b/db_lib/AppFactory.go
+index e49f7df..63ce90f 100644
+--- a/db_lib/AppFactory.go
++++ b/db_lib/AppFactory.go
+@@ -26,6 +26,13 @@ func CreateApp(template db.Template, repository db.Repository, inventory db.Inve
+ 			Name:       string(template.App),
+ 			Inventory:  inventory,
+ 		}
++	case db.AppWinRS: // QUICKWIN PATCH 0009
++		return &WinRSApp{
++			Template:   template,
++			Repository: repository,
++			Inventory:  inventory,
++			Logger:     logger,
++		}
+ 	default:
+ 		return &ShellApp{
+ 			Template:   template,
+diff --git a/db_lib/quickwin_winrs_app.go b/db_lib/quickwin_winrs_app.go
+new file mode 100644
+index 0000000..d6ac20d
+--- /dev/null
++++ b/db_lib/quickwin_winrs_app.go
+@@ -0,0 +1,129 @@
++// QUICKWIN PATCH 0009 — WinRSApp: execution engine chạy pwsh/lệnh xuống Windows từ xa
++// qua WinRM certificate auth (ADR: pwsh → SSH → winrs). Dùng inventory type "winrs"
++// (host + cert) + app type "winrs". Logic winrm dùng chung quickwin.dev/winrsexec.
++// Spec: docs/L2-specs/core-patches/0009-winrs-app.md
++package db_lib
++
++import (
++	"context"
++	"encoding/base64"
++	"fmt"
++	"os"
++	"path/filepath"
++	"time"
++	"unicode/utf16"
++
++	"github.com/semaphoreui/semaphore/db"
++	"github.com/semaphoreui/semaphore/pkg/task_logger"
++
++	"quickwin.dev/winrsexec"
++)
++
++// WinRSApp chạy 1 script pwsh (từ repo) xuống mọi host trong inventory WinRS.
++type WinRSApp struct {
++	Template   db.Template
++	Repository db.Repository
++	Inventory  db.Inventory
++	Logger     task_logger.Logger
++}
++
++func (t *WinRSApp) SetLogger(logger task_logger.Logger) task_logger.Logger {
++	t.Logger = logger
++	return logger
++}
++
++// InstallRequirements: WinRS không cần cài gì trên runner (kết nối trực tiếp WinRM).
++func (t *WinRSApp) InstallRequirements(LocalAppInstallingArgs) error { return nil }
++
++func (t *WinRSApp) Clear() {}
++
++// Run: đọc script từ repo, chạy trên từng host WinRS qua cert. Fail nếu bất kỳ host nào lỗi.
++func (t *WinRSApp) Run(args LocalAppRunningArgs) error {
++	script, err := t.readScript()
++	if err != nil {
++		return err
++	}
++	certsDir := os.Getenv("QUICKWIN_CERTS_DIR")
++	if certsDir == "" {
++		certsDir = "certs"
++	}
++	defaultCert := os.Getenv("QUICKWIN_WINRS_DEFAULT_CERT")
++
++	hosts := winrsexec.ParseHosts(t.Inventory.Inventory, defaultCert)
++	if len(hosts) == 0 {
++		return fmt.Errorf("inventory WinRS rỗng — khai báo host (mỗi dòng: 'host[:port] cert=<file.pem>')")
++	}
++	encoded := encodePowerShell(script)
++
++	var failed int
++	for _, h := range hosts {
++		t.Logger.Log(fmt.Sprintf("==> %s (cert=%s)", h.Addr, h.Cert))
++		if h.Cert == "" {
++			t.Logger.Log("  LỖI: host chưa khai cert (cert=<file> hoặc set QUICKWIN_WINRS_DEFAULT_CERT)")
++			failed++
++			continue
++		}
++		certPEM, err := os.ReadFile(filepath.Join(certsDir, h.Cert))
++		if err != nil {
++			t.Logger.Log("  LỖI đọc cert: " + err.Error())
++			failed++
++			continue
++		}
++		keyPEM := certPEM
++		if h.Key != "" {
++			if kp, kerr := os.ReadFile(filepath.Join(certsDir, h.Key)); kerr == nil {
++				keyPEM = kp
++			}
++		}
++		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
++		res, rerr := winrsexec.Run(ctx, winrsexec.Params{
++			Host: h.Addr, Port: h.Port, CertPEM: certPEM, KeyPEM: keyPEM,
++			Command: "powershell -EncodedCommand " + encoded, Timeout: 60 * time.Second,
++		})
++		cancel()
++		if rerr != nil {
++			t.Logger.Log("  " + winrsexec.Classify(rerr))
++			failed++
++			continue
++		}
++		if res.Stdout != "" {
++			t.Logger.Log(res.Stdout)
++		}
++		if res.Stderr != "" {
++			t.Logger.Log("  [stderr] " + res.Stderr)
++		}
++		if res.ExitCode != 0 {
++			t.Logger.Log(fmt.Sprintf("  exit=%d", res.ExitCode))
++			failed++
++		}
++	}
++	if failed > 0 {
++		return fmt.Errorf("WinRS: %d/%d host lỗi", failed, len(hosts))
++	}
++	t.Logger.Log(fmt.Sprintf("WinRS: %d host OK", len(hosts)))
++	return nil
++}
++
++func (t *WinRSApp) readScript() (string, error) {
++	if t.Template.Playbook == "" {
++		return "", fmt.Errorf("template WinRS chưa chọn script (playbook)")
++	}
++	p := filepath.Join(t.Repository.GetFullPath(t.Template.ID), t.Template.Playbook)
++	b, err := os.ReadFile(p)
++	if err != nil {
++		return "", fmt.Errorf("đọc script %s: %w", t.Template.Playbook, err)
++	}
++	return string(b), nil
++}
++
++// encodePowerShell mã hóa script → base64(UTF-16LE) cho `powershell -EncodedCommand`
++// (chuẩn PowerShell, xử lý được script nhiều dòng / ký tự đặc biệt).
++func encodePowerShell(script string) string {
++	u := utf16.Encode([]rune(script))
++	buf := make([]byte, len(u)*2)
++	for i, r := range u {
++		buf[i*2] = byte(r)
++		buf[i*2+1] = byte(r >> 8)
++	}
++	return base64.StdEncoding.EncodeToString(buf)
++}
+diff --git a/go.mod b/go.mod
+index 2b9dff1..f702b44 100644
+--- a/go.mod
++++ b/go.mod
+@@ -36,14 +36,30 @@ require (
+ )
+ 
+ require (
++	github.com/ChrisTrenkamp/goxpath v0.0.0-20210404020558-97928f7e12b6 // indirect
++	github.com/bodgit/ntlmssp v0.0.0-20240506230425-31973bb52d9b // indirect
++	github.com/bodgit/windows v1.0.1 // indirect
+ 	github.com/fatih/color v1.13.0 // indirect
++	github.com/go-logr/logr v1.4.2 // indirect
++	github.com/gofrs/uuid v4.4.0+incompatible // indirect
+ 	github.com/golang/protobuf v1.5.4 // indirect
++	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
+ 	github.com/hashicorp/go-hclog v1.6.3 // indirect
+ 	github.com/hashicorp/go-plugin v1.6.3 // indirect
++	github.com/hashicorp/go-uuid v1.0.3 // indirect
+ 	github.com/hashicorp/yamux v0.1.1 // indirect
++	github.com/jcmturner/aescts/v2 v2.0.0 // indirect
++	github.com/jcmturner/dnsutils/v2 v2.0.0 // indirect
++	github.com/jcmturner/gofork v1.7.6 // indirect
++	github.com/jcmturner/goidentity/v6 v6.0.1 // indirect
++	github.com/jcmturner/gokrb5/v8 v8.4.4 // indirect
++	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
++	github.com/masterzen/simplexml v0.0.0-20190410153822-31eea3082786 // indirect
++	github.com/masterzen/winrm v0.0.0-20240702205601-3fad6e106085 // indirect
+ 	github.com/mattn/go-colorable v0.1.14 // indirect
+ 	github.com/oklog/run v1.0.0 // indirect
+ 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.1 // indirect
++	github.com/tidwall/transform v0.0.0-20201103190739-32f242e2dbde // indirect
+ 	golang.org/x/text v0.34.0 // indirect
+ 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241202173237-19429a94021a // indirect
+ 	google.golang.org/grpc v1.70.0 // indirect
+@@ -98,6 +114,7 @@ require (
+ 	quickwin.dev/pluginmanager v0.0.0
+ 	quickwin.dev/registry v0.0.0
+ 	quickwin.dev/servicemanager v0.0.0
++	quickwin.dev/winrsexec v0.0.0
+ 	rsc.io/qr v0.2.0 // indirect
+ )
+ 
+@@ -112,3 +129,5 @@ replace quickwin.dev/registry => ../registry
+ replace quickwin.dev/servicemanager => ../service-manager
+ 
+ replace quickwin.dev/gitea-manager => ../gitea-manager
++
++replace quickwin.dev/winrsexec => ../winrs-exec
+diff --git a/web/src/components/InventoryForm.vue b/web/src/components/InventoryForm.vue
+index b6ab815..2a73eb0 100644
+--- a/web/src/components/InventoryForm.vue
++++ b/web/src/components/InventoryForm.vue
+@@ -51,6 +51,7 @@
+     ></v-autocomplete>
+ 
+     <v-autocomplete
++      v-if="app !== 'winrs'"
+       v-model="item.ssh_key_id"
+       :label="$t('userCredentials')"
+       :items="keys"
+@@ -64,6 +65,7 @@
+     ></v-autocomplete>
+ 
+     <v-autocomplete
++      v-if="app !== 'winrs'"
+       v-model="item.become_key_id"
+       :label="$t('sudoCredentialsOptional')"
+       clearable
+@@ -141,6 +143,24 @@
+ 
+     </div>
+ 
++    <div v-if="item.type === 'winrs'">
++      <codemirror
++        class="InventoryEditor InventoryEditor--static"
++        :style="{ border: '1px solid lightgray' }"
++        v-model.trim="item.inventory"
++        :options="winrsCmOptions"
++        placeholder="# Mỗi dòng 1 host Windows (WinRM cert-auth)
++# host[:port] cert=<file.pem> [key=<file.key>]
++10.0.0.5 cert=win11.pem
++win-app.lab:5986 cert=app.pem key=app.key"
++      />
++      <div class="caption grey--text mt-1">
++        Chạy pwsh trực tiếp xuống host Windows qua WinRM (cert).
++        Cert đặt trong thư mục <code>certs/</code> của runner
++        (hoặc set <code>QUICKWIN_WINRS_DEFAULT_CERT</code>).
++      </div>
++    </div>
++
+   </v-form>
+ </template>
+ <style>
+@@ -177,10 +197,17 @@ export default {
+ 
+   props: {
+     features: Object,
++    app: String,
+   },
+ 
+   data() {
+     return {
++      winrsCmOptions: {
++        tabSize: 2,
++        mode: 'text/plain',
++        lineNumbers: true,
++        line: true,
++      },
+       cmOptions: {
+         tabSize: 2,
+         indentUnit: 2,
+@@ -201,16 +228,6 @@ export default {
+           },
+         },
+       },
+-      inventoryTypes: [{
+-        id: 'static',
+-        name: 'Static',
+-      }, {
+-        id: 'static-yaml',
+-        name: 'Static YAML',
+-      }, {
+-        id: 'file',
+-        name: 'File',
+-      }],
+       keys: null,
+       repositories: null,
+       runnerTags: null,
+@@ -218,6 +235,16 @@ export default {
+   },
+ 
+   computed: {
++    inventoryTypes() {
++      if (this.app === 'winrs') {
++        return [{ id: 'winrs', name: 'WinRS Endpoints' }];
++      }
++      return [
++        { id: 'static', name: 'Static' },
++        { id: 'static-yaml', name: 'Static YAML' },
++        { id: 'file', name: 'File' },
++      ];
++    },
+     loginPasswordKeys() {
+       if (this.keys == null) {
+         return null;
+@@ -242,6 +269,9 @@ export default {
+   },
+ 
+   methods: {
++    getNewItem() {
++      return { type: this.app === 'winrs' ? 'winrs' : 'static' };
++    },
+     getItemsUrl() {
+       return `/api/project/${this.projectId}/inventory`;
+     },
+diff --git a/web/src/lib/constants.js b/web/src/lib/constants.js
+index 2135ae6..17e1adb 100644
+--- a/web/src/lib/constants.js
++++ b/web/src/lib/constants.js
+@@ -112,6 +112,11 @@ export const APP_ICONS = {
+   powershell: {
+     icon: 'mdi-powershell',
+   },
++  winrs: {
++    icon: 'mdi-microsoft-windows',
++    color: '#0078d4',
++    darkColor: '#4db8ff',
++  },
+ };
+ 
+ export const APP_SHORT_TITLE = {
+@@ -123,6 +128,7 @@ export const APP_SHORT_TITLE = {
+   pulumi: 'Pulumi',
+   python: 'Python',
+   powershell: 'PowerShell',
++  winrs: 'WinRS',
+ };
+ 
+ export const APP_TITLE = {
+@@ -134,6 +140,7 @@ export const APP_TITLE = {
+   pulumi: 'Pulumi Code',
+   python: 'Python Script',
+   powershell: 'PowerShell Script',
++  winrs: 'WinRS (pwsh xuống Windows qua cert)',
+ };
+ 
+ export const APP_INVENTORY_TITLE = {
+@@ -141,6 +148,7 @@ export const APP_INVENTORY_TITLE = {
+   terraform: 'Terraform Workspace',
+   tofu: 'OpenTofu Workspace',
+   terragrunt: 'Terragrunt Workspace',
++  winrs: 'WinRS Endpoints (Windows host + cert)',
+ };
+ 
+ export const APP_INVENTORY_TYPES = {
+@@ -148,6 +156,7 @@ export const APP_INVENTORY_TYPES = {
+   terraform: ['terraform-workspace'],
+   tofu: ['tofu-workspace'],
+   terragrunt: ['terragrunt-workspace'],
++  winrs: ['winrs'],
+ };
+ 
+ export const DEFAULT_APPS = Object.keys(APP_ICONS);
+diff --git a/web/src/views/project/Inventory.vue b/web/src/views/project/Inventory.vue
+index 8bdf091..044922d 100644
+--- a/web/src/views/project/Inventory.vue
++++ b/web/src/views/project/Inventory.vue
+@@ -34,6 +34,7 @@
+         <InventoryForm
+           :project-id="projectId"
+           :item-id="itemId"
++          :app="itemApp"
+           @save="onSave"
+           @error="onError"
+           :need-save="needSave"
+@@ -169,7 +170,7 @@ export default {
+ 
+   data() {
+     return {
+-      apps: ['ansible'],
++      apps: ['ansible', 'winrs'],
+       itemApp: '',
+       attachInventoryDialog: null,
+     };
+@@ -190,6 +191,8 @@ export default {
+           return 'tofu';
+         case 'terraform-workspace':
+           return 'terraform';
++        case 'winrs':
++          return 'winrs';
+         case '':
+         case 'ansible':
+           return 'ansible';

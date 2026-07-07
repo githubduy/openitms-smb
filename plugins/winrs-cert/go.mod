@@ -3,11 +3,12 @@ module quickwin.dev/plugins/winrs-cert
 go 1.24.6
 
 require (
-	github.com/masterzen/winrm v0.0.0-20240702205601-3fad6e106085
 	quickwin.dev/pluginmanager v0.0.0
 	quickwin.dev/proto v0.0.0
 	quickwin.dev/sdk v0.0.0
 )
+
+require github.com/masterzen/winrm v0.0.0-20240702205601-3fad6e106085 // indirect
 
 require (
 	github.com/Azure/go-ntlmssp v0.0.0-20221128193559-754e69321358 // indirect
@@ -41,6 +42,7 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241202173237-19429a94021a // indirect
 	google.golang.org/grpc v1.70.0 // indirect
 	google.golang.org/protobuf v1.36.6 // indirect
+	quickwin.dev/winrsexec v0.0.0
 )
 
 replace (
@@ -48,3 +50,5 @@ replace (
 	quickwin.dev/proto => ../../proto/gen/go
 	quickwin.dev/sdk => ../../sdk/go
 )
+
+replace quickwin.dev/winrsexec => ../../winrs-exec
