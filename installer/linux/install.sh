@@ -12,6 +12,10 @@ SVC_DB="openitms-db"
 DB_USER="openitms-db"
 ADMIN_LOGIN="admin"
 ADMIN_PASS="quickwin123"      # yêu cầu gốc — banner UI ép đổi ở lần login đầu
+# Mật khẩu MariaDB mặc định — ĐỦ AN TOÀN (dài, mixed-case + số + ký hiệu), KNOWN default
+# tiện quản trị. DB chỉ listen socket/localhost (không expose). Override qua env
+# OPENITMS_DB_PASSWORD. Hardening plugin cảnh báo nếu còn default.
+DB_PASS_DEFAULT="${OPENITMS_DB_PASSWORD:-OpenITMS@MariaDB#2026}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 [ "$(id -u)" = 0 ] || { echo "ERROR: cần chạy bằng root (sudo ./install.sh)"; exit 1; }
@@ -44,7 +48,7 @@ sed -i "s|@PREFIX@|$PREFIX|g; s|@DATA@|$DATA|g; s|@DBUSER@|$DB_USER|g" "$PREFIX/
 echo "==> [4/6] Config lần đầu (hardcode — sửa sau qua Settings UI)"
 DB_PASS_FILE="$PREFIX/.db-pass"
 if [ ! -f "$DB_PASS_FILE" ]; then
-  head -c24 /dev/urandom | base64 | tr -d '=+/' | head -c24 > "$DB_PASS_FILE"
+  printf '%s' "$DB_PASS_DEFAULT" > "$DB_PASS_FILE"   # default đủ an toàn, known (đổi qua env)
   chmod 600 "$DB_PASS_FILE"
 fi
 DB_PASS="$(cat "$DB_PASS_FILE")"

@@ -1,0 +1,226 @@
+# PATCH: 0007-service-manager
+# WHY: Trang Admin can xem status + restart service ha tang (MariaDB/Gitea/app). Mount
+#      /api/services (status via TCP) + /api/services/{name}/restart (admin, systemctl Linux).
+#      Logic o quickwin.dev/servicemanager. UI: tab Services trong OpenITMS.vue.
+# WHAT: file MOI api/quickwin_services.go (list+restart, addr tu config/env); router.go +1 dong;
+#      go.mod +servicemanager; OpenITMS.vue +tab Services (data-table status + nut Restart).
+#      Rebase: them registerQuickwinServices sau registerQuickwinRegistry + tab thu 4 trong OpenITMS.vue.
+# SPEC: docs/L2-specs/core-patches/0007-service-manager.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/quickwin_services.go b/api/quickwin_services.go
+new file mode 100644
+index 0000000..dd4fd68
+--- /dev/null
++++ b/api/quickwin_services.go
+@@ -0,0 +1,74 @@
++// QUICKWIN PATCH 0007 — hook Service Manager vào core (status + restart hạ tầng).
++// Mount /api/services (list status) + /api/services/{name}/restart (admin).
++// Logic ở module ngoài cây upstream (quickwin.dev/servicemanager).
++// Spec: docs/L2-specs/core-patches/0007-service-manager.md
++package api
++
++import (
++	"net/http"
++	"os"
++	"strings"
++
++	"github.com/gorilla/mux"
++	log "github.com/sirupsen/logrus"
++
++	"github.com/semaphoreui/semaphore/util"
++
++	servicemanager "quickwin.dev/servicemanager"
++)
++
++// registerQuickwinServices mount API service trên subrouter đã authenticate.
++func registerQuickwinServices(authenticatedAPI *mux.Router) {
++	mgr := servicemanager.Default(
++		quickwinMariaDBAddr(),
++		os.Getenv("QUICKWIN_GITEA_ADDR"),
++		quickwinSelfAddr(),
++	)
++
++	authenticatedAPI.HandleFunc("/services", func(w http.ResponseWriter, r *http.Request) {
++		writeJSON(w, http.StatusOK, map[string]any{"services": mgr.List(r.Context())})
++	}).Methods("GET")
++
++	authenticatedAPI.HandleFunc("/services/{name}/restart", func(w http.ResponseWriter, r *http.Request) {
++		if u, ok := helpersUser(r); !ok || !u.Admin {
++			writeJSON(w, http.StatusForbidden, map[string]string{"error": "admin required"})
++			return
++		}
++		name := mux.Vars(r)["name"]
++		if err := mgr.Restart(r.Context(), name); err != nil {
++			writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
++			return
++		}
++		writeJSON(w, http.StatusOK, map[string]string{"restarted": name})
++	}).Methods("POST")
++
++	log.Info("quickwin: service manager mounted at api/services")
++}
++
++// quickwinMariaDBAddr — địa chỉ MariaDB để check status (từ config mysql host hoặc env).
++func quickwinMariaDBAddr() string {
++	if a := os.Getenv("QUICKWIN_MARIADB_ADDR"); a != "" {
++		return a
++	}
++	// từ config: nếu dialect mysql + host dạng host:port
++	if util.Config != nil && util.Config.MySQL != nil {
++		h := util.Config.MySQL.Hostname
++		if h == "" || h == "0.0.0.0" {
++			h = "127.0.0.1"
++		}
++		if strings.Contains(h, ":") {
++			return h
++		}
++		return h + ":3306"
++	}
++	return ""
++}
++
++// quickwinSelfAddr — địa chỉ chính app (chỉ để hiển thị status).
++func quickwinSelfAddr() string {
++	port := "3000"
++	if util.Config != nil && util.Config.Port != "" {
++		port = strings.TrimPrefix(util.Config.Port, ":")
++	}
++	return "127.0.0.1:" + port
++}
+diff --git a/api/router.go b/api/router.go
+index e6d18ef..feb626c 100644
+--- a/api/router.go
++++ b/api/router.go
+@@ -184,6 +184,7 @@ func Route(
+ 	authenticatedAPI.Use(StoreMiddleware, JSONMiddleware, authentication)
+ 	registerQuickwinPlugins(authenticatedAPI) // QUICKWIN PATCH 0001
+ 	registerQuickwinRegistry(authenticatedAPI) // QUICKWIN PATCH 0005
++	registerQuickwinServices(authenticatedAPI) // QUICKWIN PATCH 0007
+ 
+ 	authenticatedAPI.Path("/info").HandlerFunc(systemInfoController.GetSystemInfo).Methods("GET", "HEAD")
+ 
+diff --git a/go.mod b/go.mod
+index 52a2336..b5443d7 100644
+--- a/go.mod
++++ b/go.mod
+@@ -96,6 +96,7 @@ require (
+ 	modernc.org/memory v1.11.0 // indirect
+ 	quickwin.dev/pluginmanager v0.0.0
+ 	quickwin.dev/registry v0.0.0
++	quickwin.dev/servicemanager v0.0.0
+ 	rsc.io/qr v0.2.0 // indirect
+ )
+ 
+@@ -106,3 +107,5 @@ replace quickwin.dev/proto => ../proto/gen/go
+ replace quickwin.dev/sdk => ../sdk/go
+ 
+ replace quickwin.dev/registry => ../registry
++
++replace quickwin.dev/servicemanager => ../service-manager
+diff --git a/web/src/views/OpenITMS.vue b/web/src/views/OpenITMS.vue
+index 71484b1..534a3b9 100644
+--- a/web/src/views/OpenITMS.vue
++++ b/web/src/views/OpenITMS.vue
+@@ -12,6 +12,7 @@
+       <v-tab>Plugins</v-tab>
+       <v-tab>Registry</v-tab>
+       <v-tab>Hardening</v-tab>
++      <v-tab>Services</v-tab>
+     </v-tabs>
+ 
+     <v-alert v-if="error" type="error" dense class="ma-2">{{ error }}</v-alert>
+@@ -100,6 +101,33 @@
+           </template>
+         </v-data-table>
+       </v-tab-item>
++
++      <!-- SERVICES -->
++      <v-tab-item>
++        <v-data-table
++          :headers="serviceHeaders"
++          :items="services"
++          :loading="loading"
++          class="mt-4"
++          :footer-props="{ itemsPerPageOptions: [20] }"
++        >
++          <template v-slot:item.up="{ item }">
++            <v-chip small :color="item.up ? 'green' : 'red'" dark>
++              {{ item.up ? 'running' : 'stopped' }}
++            </v-chip>
++          </template>
++          <template v-slot:item.actions="{ item }">
++            <v-btn
++              v-if="item.can_restart"
++              small
++              color="orange darken-2"
++              dark
++              :disabled="!isAdmin"
++              @click="restartService(item)"
++            >Restart</v-btn>
++          </template>
++        </v-data-table>
++      </v-tab-item>
+     </v-tabs-items>
+   </div>
+ </template>
+@@ -119,6 +147,13 @@ export default {
+       findings: [],
+       issues: 0,
+       scanned: false,
++      services: [],
++      serviceHeaders: [
++        { text: 'Service', value: 'label' },
++        { text: 'Trạng thái', value: 'up' },
++        { text: 'Địa chỉ', value: 'addr' },
++        { text: '', value: 'actions', sortable: false },
++      ],
+       pluginHeaders: [
+         { text: 'Tên', value: 'name' },
+         { text: 'Version', value: 'version' },
+@@ -151,6 +186,12 @@ export default {
+     },
+   },
+ 
++  watch: {
++    tab(v) {
++      if (v === 3 && this.services.length === 0) this.loadServices();
++    },
++  },
++
+   created() {
+     this.loadPlugins();
+   },
+@@ -165,7 +206,31 @@ export default {
+     reloadCurrent() {
+       if (this.tab === 0) this.loadPlugins();
+       else if (this.tab === 1) this.search();
+-      else this.scan();
++      else if (this.tab === 2) this.scan();
++      else this.loadServices();
++    },
++
++    async loadServices() {
++      this.error = null;
++      this.loading = true;
++      try {
++        const { data } = await axios.get('/api/services');
++        this.services = data.services || [];
++      } catch (e) {
++        this.error = this.errText(e);
++      } finally {
++        this.loading = false;
++      }
++    },
++
++    async restartService(item) {
++      this.error = null;
++      try {
++        await axios.post(`/api/services/${item.name}/restart`);
++        this.loadServices();
++      } catch (e) {
++        this.error = this.errText(e);
++      }
+     },
+ 
+     async loadPlugins() {

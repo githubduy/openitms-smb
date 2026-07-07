@@ -3,6 +3,11 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-07 — 0007-service-manager.patch
+**WHY:** trang Admin xem status + restart service hạ tầng (MariaDB/Gitea/app).
+**WHAT:** api/quickwin_services.go (/api/services list+restart); router +1; go.mod +servicemanager;
+OpenITMS.vue +tab Services. Status via TCP (mọi OS); restart via systemctl (Linux). Spec 0007.
+
 ## 2026-07-06 — 0006-management-ui.patch
 **WHY:** UI quản lý OpenITMS (Plugins/Registry/Hardening) — tính năng core theo plan.
 **WHAT:** view mới OpenITMS.vue (3 tab, axios gọi /api/plugins + /api/registry + hardening);

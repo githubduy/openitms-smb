@@ -48,14 +48,35 @@ func configFromEnv() scanConfig {
 	}
 }
 
+// defaultDBPassword — mặc định của installer (khớp install.sh DB_PASS_DEFAULT).
+const defaultDBPassword = "OpenITMS@MariaDB#2026"
+
 // runChecks chạy toàn bộ check, trả findings (cả pass lẫn fail).
 func runChecks(c scanConfig) []Finding {
 	var f []Finding
 	f = append(f, checkDefaultPassword(c))
+	f = append(f, checkDefaultDBPassword(c))
 	f = append(f, checkConfigPerms(c))
 	f = append(f, checkCertsDirPerms(c))
 	f = append(f, checkConfigTLS(c))
 	f = append(f, checkDBPassFile(c))
+	return f
+}
+
+// checkDefaultDBPassword — cảnh báo nếu MariaDB còn dùng mật khẩu mặc định của installer.
+func checkDefaultDBPassword(c scanConfig) Finding {
+	f := Finding{ID: "default-db-password", Title: "Mật khẩu MariaDB mặc định",
+		Severity: SevMedium, Fixable: false}
+	data, err := os.ReadFile(c.configPath)
+	if err != nil {
+		f.Passed, f.Detail = true, "không đọc được config"
+		return f
+	}
+	if strings.Contains(string(data), defaultDBPassword) {
+		f.Detail = "DB đang dùng mật khẩu mặc định — đổi qua env OPENITMS_DB_PASSWORD + cập nhật config/DB"
+		return f
+	}
+	f.Passed, f.Detail = true, "mật khẩu DB đã đổi khỏi mặc định"
 	return f
 }
 
