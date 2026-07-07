@@ -1,3 +1,5 @@
+*[English](README.en.md) | Tiếng Việt*
+
 # OpenITMS-SMB
 
 **Quản lý toàn bộ máy tính Windows & Linux của công ty từ một trang web duy nhất.**
@@ -62,11 +64,12 @@ Set-ExecutionPolicy -Scope Process Bypass -Force
 .\installer\windows\install.ps1
 ```
 
-Trình cài đặt tự khởi tạo database, tạo tài khoản quản trị, và đăng ký chạy nền lúc khởi động máy.
-Cuối màn hình in ra địa chỉ truy cập. Yêu cầu: Windows 10/11 hoặc Windows Server 64-bit.
+Trình cài đặt tự khởi tạo database, tạo tài khoản quản trị, dựng git server nội bộ (Gitea), và
+đăng ký chạy nền lúc khởi động máy. Cuối màn hình in ra địa chỉ truy cập. Yêu cầu: Windows 10/11
+hoặc Windows Server 64-bit.
 
 - Gỡ cài: `.\installer\windows\uninstall.ps1` (thêm `-PurgeData` để xoá cả dữ liệu)
-- Trạng thái: `Get-Service OpenITMS-DB` và `Get-ScheduledTask OpenITMS`
+- Trạng thái: `Get-Service OpenITMS-DB` và `Get-ScheduledTask OpenITMS*`
 
 ---
 

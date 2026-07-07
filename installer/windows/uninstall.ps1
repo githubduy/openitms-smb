@@ -1,5 +1,6 @@
-# OpenITMS-SMB — gỡ cài đặt trên Windows. Chạy AS ADMINISTRATOR.
-# Mặc định GIỮ dữ liệu (data\). Dùng -PurgeData để xoá sạch cả database.
+# OpenITMS-SMB - go cai dat tren Windows. Chay AS ADMINISTRATOR.
+# Mac dinh GIU du lieu (data\). Dung -PurgeData de xoa sach ca database.
+# (Thong bao dung ASCII de PowerShell 5.1 doc file khong loi encoding.)
 [CmdletBinding()]
 param(
   [string]$Prefix = "C:\OpenITMS",
@@ -7,24 +8,24 @@ param(
 )
 $ErrorActionPreference = "SilentlyContinue"
 
-Write-Host "==> Dừng + xoá Scheduled Task 'OpenITMS'"
+Write-Host "==> Dung + xoa Scheduled Task 'OpenITMS'"
 Stop-ScheduledTask -TaskName "OpenITMS"
 Unregister-ScheduledTask -TaskName "OpenITMS" -Confirm:$false
 
-Write-Host "==> Dừng + xoá service 'OpenITMS-DB'"
+Write-Host "==> Dung + xoa Scheduled Task 'OpenITMS-Gitea'"
+Stop-ScheduledTask -TaskName "OpenITMS-Gitea"
+Unregister-ScheduledTask -TaskName "OpenITMS-Gitea" -Confirm:$false
+
+Write-Host "==> Dung + xoa service 'OpenITMS-DB'"
 Stop-Service "OpenITMS-DB"
 $mysqld = Join-Path $Prefix "mariadb\bin\mariadbd.exe"
 if (Test-Path $mysqld) { & $mysqld "--remove" "OpenITMS-DB" | Out-Null }
 
-# Gitea (nếu có)
-Stop-ScheduledTask -TaskName "OpenITMS-Gitea"
-Unregister-ScheduledTask -TaskName "OpenITMS-Gitea" -Confirm:$false
-
 if ($PurgeData) {
-  Write-Host "==> Xoá TOÀN BỘ $Prefix (gồm database)" -ForegroundColor Yellow
+  Write-Host "==> Xoa TOAN BO $Prefix (gom database)" -ForegroundColor Yellow
   Remove-Item -Recurse -Force $Prefix
 } else {
-  Write-Host "==> Giữ dữ liệu tại $Prefix\data (dùng -PurgeData để xoá hẳn)"
-  Remove-Item -Recurse -Force (Join-Path $Prefix "bin"),(Join-Path $Prefix "plugins")
+  Write-Host "==> Giu du lieu tai $Prefix\data (dung -PurgeData de xoa han)"
+  Remove-Item -Recurse -Force (Join-Path $Prefix "bin"),(Join-Path $Prefix "plugins"),(Join-Path $Prefix "gitea")
 }
-Write-Host "Đã gỡ OpenITMS-SMB." -ForegroundColor Green
+Write-Host "Da go OpenITMS-SMB." -ForegroundColor Green
