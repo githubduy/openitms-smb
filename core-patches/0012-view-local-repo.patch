@@ -1,0 +1,146 @@
+# PATCH: 0012-view-local-repo
+# WHY: Repo local (Gitea) của project (tạo bởi 0008) có token nhúng trong GitURL (secret) →
+#      không hiện thẳng ra UI được. Người dùng cần link mở/xem repo local mỗi project (G-05).
+# WHAT: api/projects/quickwin_gitea_view.go MỚI — GetProjectGiteaRepo: tìm repository local
+#       (host khớp QUICKWIN_GITEA_ADDR hoặc tên chứa "Gitea"), STRIP token/userinfo khỏi URL,
+#       trả {repo_id,name,branch,web_url}. router.go +route GET /gitea/repo. UI: Repositories.vue
+#       thêm banner "Repo local (Gitea)" + nút "Mở trên Gitea" (link web_url, target _blank).
+# SPEC: docs/L2-specs/core-patches/0012-view-local-repo.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/quickwin_gitea_view.go b/api/projects/quickwin_gitea_view.go
+new file mode 100644
+index 0000000..c781c68
+--- /dev/null
++++ b/api/projects/quickwin_gitea_view.go
+@@ -0,0 +1,50 @@
++// QUICKWIN PATCH 0012 — xem repo local (Gitea) của project trong UI.
++// Repository local do 0008 tạo có token nhúng trong GitURL (secret) → handler này trả URL
++// browse ĐÃ BỎ token để UI hiện link mở repo trên Gitea. Không lộ token ra frontend.
++// Spec: docs/L2-specs/core-patches/0012-view-local-repo.md
++package projects
++
++import (
++	"net/http"
++	"net/url"
++	"os"
++	"strings"
++
++	"github.com/semaphoreui/semaphore/api/helpers"
++	"github.com/semaphoreui/semaphore/db"
++)
++
++// GetProjectGiteaRepo trả URL browse repo local (Gitea) của project (token đã strip),
++// hoặc {web_url:null} nếu project không có repo local.
++func GetProjectGiteaRepo(w http.ResponseWriter, r *http.Request) {
++	project := helpers.GetFromContext(r, "project").(db.Project)
++	addr := os.Getenv("QUICKWIN_GITEA_ADDR")
++
++	repos, err := helpers.Store(r).GetRepositories(project.ID, db.RetrieveQueryParams{})
++	if err != nil {
++		helpers.WriteError(w, err)
++		return
++	}
++
++	for _, rp := range repos {
++		u, perr := url.Parse(rp.GitURL)
++		if perr != nil {
++			continue
++		}
++		isGitea := (addr != "" && u.Host == addr) || strings.Contains(rp.Name, "Gitea")
++		if !isGitea {
++			continue
++		}
++		u.User = nil // BỎ token/userinfo trước khi trả về frontend
++		web := strings.TrimSuffix(u.String(), ".git")
++		helpers.WriteJSON(w, http.StatusOK, map[string]any{
++			"repo_id": rp.ID,
++			"name":    rp.Name,
++			"branch":  rp.GitBranch,
++			"web_url": web,
++		})
++		return
++	}
++
++	helpers.WriteJSON(w, http.StatusOK, map[string]any{"web_url": nil})
++}
+diff --git a/api/router.go b/api/router.go
+index 981bb95..10c3c6b 100644
+--- a/api/router.go
++++ b/api/router.go
+@@ -312,6 +312,9 @@ func Route(
+ 	projectUserAPI.Path("/repositories").HandlerFunc(projects.GetRepositories).Methods("GET", "HEAD")
+ 	projectUserAPI.Path("/repositories").HandlerFunc(projects.AddRepository).Methods("POST")
+ 
++	// QUICKWIN PATCH 0012 — xem repo local (Gitea) của project (URL đã strip token)
++	projectUserAPI.Path("/gitea/repo").HandlerFunc(projects.GetProjectGiteaRepo).Methods("GET", "HEAD")
++
+ 	projectUserAPI.Path("/inventory").HandlerFunc(projects.GetInventory).Methods("GET", "HEAD")
+ 	projectUserAPI.Path("/inventory").HandlerFunc(projects.AddInventory).Methods("POST")
+ 
+diff --git a/web/src/views/project/Repositories.vue b/web/src/views/project/Repositories.vue
+index 780ab6e..1b7d970 100644
+--- a/web/src/views/project/Repositories.vue
++++ b/web/src/views/project/Repositories.vue
+@@ -46,6 +46,36 @@
+ 
+     <v-divider />
+ 
++    <v-alert
++      v-if="giteaRepo && giteaRepo.web_url"
++      dense
++      text
++      color="primary"
++      class="mt-4 mb-0"
++      style="max-width: calc(var(--breakpoint-xl) - var(--nav-drawer-width) - 100px); margin: auto;"
++    >
++      <div class="d-flex align-center">
++        <v-icon color="primary" class="mr-2">mdi-git</v-icon>
++        <span>
++          Repo local (Gitea) của project:
++          <strong>{{ giteaRepo.name }}</strong>
++          <code class="ml-1">{{ giteaRepo.branch }}</code>
++        </span>
++        <v-spacer></v-spacer>
++        <v-btn
++          small
++          color="primary"
++          text
++          :href="giteaRepo.web_url"
++          target="_blank"
++          rel="noopener noreferrer"
++        >
++          <v-icon left small>mdi-open-in-new</v-icon>
++          Mở trên Gitea
++        </v-btn>
++      </div>
++    </v-alert>
++
+     <v-data-table
+       :headers="headers"
+       :items="items"
+@@ -89,6 +119,7 @@ export default {
+   data() {
+     return {
+       keys: null,
++      giteaRepo: null,
+     };
+   },
+ 
+@@ -98,6 +129,16 @@ export default {
+       url: `/api/project/${this.projectId}/keys`,
+       responseType: 'json',
+     })).data;
++
++    try {
++      this.giteaRepo = (await axios({
++        method: 'get',
++        url: `/api/project/${this.projectId}/gitea/repo`,
++        responseType: 'json',
++      })).data;
++    } catch (e) {
++      this.giteaRepo = null;
++    }
+   },
+ 
+   methods: {

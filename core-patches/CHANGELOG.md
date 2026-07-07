@@ -3,6 +3,12 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-07 — 0012-view-local-repo.patch
+**WHY:** repo local Gitea (0008) có token nhúng trong GitURL → cần link xem/mở repo per project (G-05).
+**WHAT:** api/projects/quickwin_gitea_view.go (GetProjectGiteaRepo: tìm repo local, strip token,
+trả web_url sạch); router.go +GET /gitea/repo; UI Repositories.vue banner "Repo local (Gitea)" +
+nút "Mở trên Gitea". Spec 0012.
+
 ## 2026-07-07 — 0011-seed-host-project.patch
 **WHY:** yêu cầu gốc "mặc định có 1 project quản lý chỉnh máy chính host" — có sẵn sau cài đặt.
 **WHAT:** api/projects/quickwin_seed.go (SeedHostProjectIfEmpty: chưa có project + đã có user →
