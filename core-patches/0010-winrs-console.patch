@@ -1,0 +1,411 @@
+# PATCH: 0010-winrs-console
+# WHY: Nhu cầu "gõ lệnh nhanh xuống 1 host Windows" mà không phải tạo template + inventory +
+#      chạy task. Bổ sung cho engine 0009: console đồng bộ (nhập host/cert/lệnh → chạy → xem ngay).
+# WHAT: api/projects/quickwin_winrs.go MỚI — GetWinRSCerts (list *.pem trong certs dir) +
+#       WinRSExec (chạy 1 lệnh pwsh qua winrsexec.Run, cert-auth, chặn path-traversal cert/key,
+#       trả stdout/stderr/exit_code). router.go +2 route (/winrs/certs GET, /winrs/exec POST) trên
+#       projectUserAPI (gate CanManageProjectResources). UI: view WinRSConsole.vue + route
+#       /project/:id/winrs_console + nav item "WinRS Console" (App.vue).
+# SPEC: docs/L2-specs/core-patches/0010-winrs-console.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/quickwin_winrs.go b/api/projects/quickwin_winrs.go
+new file mode 100644
+index 0000000..361b1cb
+--- /dev/null
++++ b/api/projects/quickwin_winrs.go
+@@ -0,0 +1,135 @@
++// QUICKWIN PATCH 0010 — WinRS Console: chạy 1 lệnh pwsh nhanh xuống 1 host Windows
++// (WinRM cert-auth) mà không cần tạo template/inventory. Đồng bộ (chờ kết quả), gate bằng
++// CanManageProjectResources (đăng ký ở projectUserAPI). Logic winrm dùng chung winrsexec.
++// Spec: docs/L2-specs/core-patches/0010-winrs-console.md
++package projects
++
++import (
++	"context"
++	"encoding/base64"
++	"net/http"
++	"os"
++	"path/filepath"
++	"sort"
++	"strings"
++	"time"
++	"unicode/utf16"
++
++	"github.com/semaphoreui/semaphore/api/helpers"
++
++	"quickwin.dev/winrsexec"
++)
++
++// encodePowerShellConsole: script → base64(UTF-16LE) cho `powershell -EncodedCommand`.
++func encodePowerShellConsole(script string) string {
++	u := utf16.Encode([]rune(script))
++	buf := make([]byte, len(u)*2)
++	for i, r := range u {
++		buf[i*2] = byte(r)
++		buf[i*2+1] = byte(r >> 8)
++	}
++	return base64.StdEncoding.EncodeToString(buf)
++}
++
++func winrsCertsDir() string {
++	d := os.Getenv("QUICKWIN_CERTS_DIR")
++	if d == "" {
++		d = "certs"
++	}
++	return d
++}
++
++// GetWinRSCerts liệt kê tên file cert (.pem) trong certs dir để UI console chọn.
++func GetWinRSCerts(w http.ResponseWriter, r *http.Request) {
++	dir := winrsCertsDir()
++	entries, err := os.ReadDir(dir)
++	certs := []string{}
++	if err == nil {
++		for _, e := range entries {
++			if e.IsDir() {
++				continue
++			}
++			name := e.Name()
++			if strings.HasSuffix(name, ".pem") || strings.HasSuffix(name, ".crt") {
++				certs = append(certs, name)
++			}
++		}
++	}
++	sort.Strings(certs)
++	helpers.WriteJSON(w, http.StatusOK, map[string]any{"certs": certs})
++}
++
++type winrsExecRequest struct {
++	Host    string `json:"host"`
++	Port    int    `json:"port"`
++	Cert    string `json:"cert"`
++	Key     string `json:"key"`
++	Command string `json:"command"`
++}
++
++// WinRSExec chạy 1 lệnh xuống 1 host Windows qua WinRM cert-auth, trả kết quả đồng bộ.
++func WinRSExec(w http.ResponseWriter, r *http.Request) {
++	var req winrsExecRequest
++	if !helpers.Bind(w, r, &req) {
++		return
++	}
++
++	req.Host = strings.TrimSpace(req.Host)
++	req.Cert = strings.TrimSpace(req.Cert)
++	req.Command = strings.TrimSpace(req.Command)
++	if req.Host == "" || req.Cert == "" || req.Command == "" {
++		helpers.WriteJSON(w, http.StatusBadRequest, map[string]string{
++			"error": "host, cert, command là bắt buộc",
++		})
++		return
++	}
++
++	// Chặn path traversal: cert/key chỉ là tên file trong certs dir.
++	if strings.ContainsAny(req.Cert, "/\\") || strings.ContainsAny(req.Key, "/\\") {
++		helpers.WriteJSON(w, http.StatusBadRequest, map[string]string{
++			"error": "cert/key phải là tên file trong certs dir (không chứa / hoặc \\)",
++		})
++		return
++	}
++
++	dir := winrsCertsDir()
++	certPEM, err := os.ReadFile(filepath.Join(dir, req.Cert))
++	if err != nil {
++		helpers.WriteJSON(w, http.StatusBadRequest, map[string]string{
++			"error": "không đọc được cert: " + err.Error(),
++		})
++		return
++	}
++	keyPEM := certPEM
++	if req.Key != "" {
++		if kp, kerr := os.ReadFile(filepath.Join(dir, req.Key)); kerr == nil {
++			keyPEM = kp
++		}
++	}
++
++	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
++	defer cancel()
++
++	res, rerr := winrsexec.Run(ctx, winrsexec.Params{
++		Host:    req.Host,
++		Port:    req.Port,
++		CertPEM: certPEM,
++		KeyPEM:  keyPEM,
++		Command: "powershell -EncodedCommand " + encodePowerShellConsole(req.Command),
++		Timeout: 60 * time.Second,
++	})
++	if rerr != nil {
++		helpers.WriteJSON(w, http.StatusOK, map[string]any{
++			"ok":    false,
++			"error": winrsexec.Classify(rerr),
++		})
++		return
++	}
++
++	helpers.WriteJSON(w, http.StatusOK, map[string]any{
++		"ok":        res.ExitCode == 0,
++		"exit_code": res.ExitCode,
++		"stdout":    res.Stdout,
++		"stderr":    res.Stderr,
++	})
++}
+diff --git a/api/router.go b/api/router.go
+index feb626c..981bb95 100644
+--- a/api/router.go
++++ b/api/router.go
+@@ -315,6 +315,10 @@ func Route(
+ 	projectUserAPI.Path("/inventory").HandlerFunc(projects.GetInventory).Methods("GET", "HEAD")
+ 	projectUserAPI.Path("/inventory").HandlerFunc(projects.AddInventory).Methods("POST")
+ 
++	// QUICKWIN PATCH 0010 — WinRS console (chạy lệnh nhanh xuống 1 host Windows)
++	projectUserAPI.Path("/winrs/certs").HandlerFunc(projects.GetWinRSCerts).Methods("GET", "HEAD")
++	projectUserAPI.Path("/winrs/exec").HandlerFunc(projects.WinRSExec).Methods("POST")
++
+ 	projectUserAPI.Path("/environment").HandlerFunc(projects.GetEnvironment).Methods("GET", "HEAD")
+ 	projectUserAPI.Path("/environment").HandlerFunc(environmentController.AddEnvironment).Methods("POST")
+ 
+diff --git a/web/src/App.vue b/web/src/App.vue
+index b2b5c2c..150f9f5 100644
+--- a/web/src/App.vue
++++ b/web/src/App.vue
+@@ -1182,6 +1182,13 @@ export default {
+             to: `${base}/inventory`,
+             testId: 'sidebar-inventory',
+           },
++          {
++            key: 'winrs_console',
++            icon: 'mdi-microsoft-windows',
++            title: 'WinRS Console',
++            to: `${base}/winrs_console`,
++            testId: 'sidebar-winrs-console',
++          },
+           {
+             key: 'environment',
+             icon: 'mdi-code-braces',
+diff --git a/web/src/router/index.js b/web/src/router/index.js
+index 4839129..2c183af 100644
+--- a/web/src/router/index.js
++++ b/web/src/router/index.js
+@@ -16,6 +16,7 @@ import Templates from '../views/project/Templates.vue';
+ import TemplateView from '../views/project/TemplateView.vue';
+ import Environment from '../views/project/Environment.vue';
+ import Inventory from '../views/project/Inventory.vue';
++import WinRSConsole from '../views/project/WinRSConsole.vue';
+ import Keys from '../views/project/Keys.vue';
+ import Repositories from '../views/project/Repositories.vue';
+ import Team from '../views/project/Team.vue';
+@@ -128,6 +129,10 @@ const routes = [
+     path: '/project/:projectId/inventory',
+     component: Inventory,
+   },
++  {
++    path: '/project/:projectId/winrs_console',
++    component: WinRSConsole,
++  },
+   {
+     path: '/project/:projectId/integrations',
+     component: Integrations,
+diff --git a/web/src/views/project/WinRSConsole.vue b/web/src/views/project/WinRSConsole.vue
+new file mode 100644
+index 0000000..ac669ea
+--- /dev/null
++++ b/web/src/views/project/WinRSConsole.vue
+@@ -0,0 +1,197 @@
++<template xmlns:v-slot="http://www.w3.org/1999/XSL/Transform">
++  <div>
++    <v-toolbar flat>
++      <v-app-bar-nav-icon @click="showDrawer()"></v-app-bar-nav-icon>
++      <v-toolbar-title>
++        <v-icon color="#0078d4" class="mr-2">mdi-microsoft-windows</v-icon>
++        WinRS Console
++      </v-toolbar-title>
++    </v-toolbar>
++
++    <v-divider />
++
++    <div class="pa-4" style="max-width: 900px; margin: auto;">
++      <v-alert type="info" dense text class="mb-4">
++        Chạy nhanh 1 lệnh PowerShell xuống 1 host Windows qua WinRM (cert). Không lưu lịch sử —
++        dùng Task Template (app WinRS) nếu cần lịch sử/lịch chạy.
++      </v-alert>
++
++      <v-row>
++        <v-col cols="8">
++          <v-text-field
++            v-model.trim="host"
++            label="Host / IP"
++            placeholder="10.0.0.5 hoặc win-app.lab"
++            outlined
++            dense
++          ></v-text-field>
++        </v-col>
++        <v-col cols="4">
++          <v-text-field
++            v-model.number="port"
++            label="Port"
++            type="number"
++            placeholder="5986"
++            outlined
++            dense
++          ></v-text-field>
++        </v-col>
++      </v-row>
++
++      <v-autocomplete
++        v-model="cert"
++        :items="certs"
++        label="Certificate (trong certs dir)"
++        :no-data-text="certsLoaded ? 'Không có cert nào trong certs dir' : 'Đang tải...'"
++        outlined
++        dense
++      ></v-autocomplete>
++
++      <codemirror
++        class="WinRSConsoleEditor"
++        :style="{ border: '1px solid lightgray' }"
++        v-model="command"
++        :options="cmOptions"
++        placeholder="Get-Service | Where-Object Status -eq 'Running' | Select-Object -First 5"
++      />
++
++      <div class="mt-3">
++        <v-btn
++          color="primary"
++          :loading="running"
++          :disabled="running || !host || !cert || !command"
++          @click="run"
++        >
++          <v-icon left>mdi-play</v-icon>
++          Chạy
++        </v-btn>
++        <span v-if="lastExit !== null" class="ml-4">
++          <v-chip
++            small
++            :color="lastExit === 0 ? 'success' : 'error'"
++            text-color="white"
++          >exit {{ lastExit }}</v-chip>
++        </span>
++        <span v-if="errorMsg" class="ml-4 error--text">{{ errorMsg }}</span>
++      </div>
++
++      <div v-if="stdout || stderr" class="mt-4">
++        <div v-if="stdout">
++          <div class="caption grey--text">stdout</div>
++          <pre class="WinRSConsoleOut">{{ stdout }}</pre>
++        </div>
++        <div v-if="stderr" class="mt-2">
++          <div class="caption grey--text">stderr</div>
++          <pre class="WinRSConsoleOut WinRSConsoleErr">{{ stderr }}</pre>
++        </div>
++      </div>
++    </div>
++  </div>
++</template>
++<style>
++.WinRSConsoleEditor .CodeMirror {
++  height: 140px !important;
++}
++
++.WinRSConsoleOut {
++  background: #1e1e1e;
++  color: #d4d4d4;
++  padding: 12px;
++  border-radius: 4px;
++  overflow-x: auto;
++  white-space: pre-wrap;
++  word-break: break-all;
++  font-family: monospace;
++  font-size: 13px;
++}
++
++.WinRSConsoleErr {
++  color: #f48771;
++}
++</style>
++<script>
++/* eslint-disable import/no-extraneous-dependencies,import/extensions */
++import axios from 'axios';
++import { codemirror } from 'vue-codemirror';
++import 'codemirror/lib/codemirror.css';
++import 'codemirror/addon/display/placeholder.js';
++import EventBus from '@/event-bus';
++
++export default {
++  components: { codemirror },
++
++  props: {
++    projectId: Number,
++  },
++
++  data() {
++    return {
++      host: '',
++      port: 5986,
++      cert: null,
++      command: '',
++      certs: [],
++      certsLoaded: false,
++      running: false,
++      stdout: '',
++      stderr: '',
++      lastExit: null,
++      errorMsg: null,
++      cmOptions: {
++        tabSize: 2,
++        mode: 'text/plain',
++        lineNumbers: true,
++        line: true,
++      },
++    };
++  },
++
++  async created() {
++    await this.loadCerts();
++  },
++
++  methods: {
++    showDrawer() {
++      EventBus.$emit('i-show-drawer');
++    },
++
++    async loadCerts() {
++      try {
++        const { data } = await axios.get(`/api/project/${this.projectId}/winrs/certs`);
++        this.certs = data.certs || [];
++      } catch (e) {
++        this.certs = [];
++      } finally {
++        this.certsLoaded = true;
++      }
++    },
++
++    async run() {
++      this.running = true;
++      this.stdout = '';
++      this.stderr = '';
++      this.lastExit = null;
++      this.errorMsg = null;
++      try {
++        const { data } = await axios.post(`/api/project/${this.projectId}/winrs/exec`, {
++          host: this.host,
++          port: this.port || 5986,
++          cert: this.cert,
++          command: this.command,
++        });
++        if (data.error) {
++          this.errorMsg = data.error;
++        } else {
++          this.stdout = data.stdout || '';
++          this.stderr = data.stderr || '';
++          this.lastExit = data.exit_code;
++        }
++      } catch (e) {
++        this.errorMsg = e.response?.data?.error || e.message || 'Lỗi không xác định';
++      } finally {
++        this.running = false;
++      }
++    },
++  },
++};
++</script>

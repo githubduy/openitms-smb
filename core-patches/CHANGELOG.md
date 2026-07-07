@@ -3,6 +3,13 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-07 — 0010-winrs-console.patch
+**WHY:** gõ lệnh nhanh xuống 1 host Windows mà không cần tạo template + inventory + task.
+**WHAT:** api/projects/quickwin_winrs.go (GetWinRSCerts list *.pem + WinRSExec chạy 1 lệnh pwsh
+qua winrsexec, cert-auth, chặn path-traversal, trả stdout/stderr/exit_code); router.go +2 route
+(/winrs/certs, /winrs/exec) gate CanManageProjectResources; UI WinRSConsole.vue + route +
+nav "WinRS Console". Đồng bộ, không lưu lịch sử. Spec 0010.
+
 ## 2026-07-07 — 0009-winrs-app.patch
 **WHY:** OpenITMS chạy pwsh trực tiếp xuống Windows host qua WinRM (pwsh → winrs) — Semaphore gốc
 chỉ có inventory/app hướng-Ansible, thiếu đường chạy này.
