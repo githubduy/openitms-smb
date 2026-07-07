@@ -3,6 +3,12 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-07 — 0017-winrs-history.patch
+**WHY:** WinRS Console nhớ lần gõ trước — last-run tự prefill + lịch sử execute lưu tạm ra file.
+**WHAT:** quickwin_winrs_history.go (ghi JSONL ts/host/command/exit vào tmp dir project, giữ 100 dòng;
+GetWinRSHistory mới-nhất-trước); WinRSExec ghi history mỗi lần chạy; router +GET /winrs/history;
+UI localStorage nhớ last-run + bảng "Recent commands" + nút Reuse. Spec 0017.
+
 ## 2026-07-07 — 0016-enroll-1click.patch
 **WHY:** enrollment 1-click — bỏ copy cert thủ công; máy đích tự nạp cert + tự thêm vào inventory.
 **WHAT:** quickwin_enroll_token.go (token HMAC stateless key=CookieHash TTL30' + GetEnrollToken authed +

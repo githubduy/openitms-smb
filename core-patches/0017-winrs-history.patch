@@ -1,0 +1,314 @@
+# PATCH: 0017-winrs-history
+# WHY: WinRS Console nên nhớ các lần gõ trước: last-run tự prefill (localStorage) + lịch sử
+#      execute lưu tạm ra file để xem/lặp lại lệnh cũ.
+# WHAT: quickwin_winrs_history.go MỚI — ghi JSONL (ts/host/command/exit, KHÔNG lưu stdout) vào
+#       tmp dir project, giữ 100 dòng cuối; GetWinRSHistory (mới nhất trước). WinRSExec ghi history
+#       sau mỗi lần chạy. router +GET /winrs/history. UI: localStorage nhớ last-run (host/port/cert/
+#       command) tự prefill; bảng "Recent commands" + nút Reuse (i18n en.js).
+# SPEC: docs/L2-specs/core-patches/0017-winrs-history.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/quickwin_winrs.go b/api/projects/quickwin_winrs.go
+index 361b1cb..c3611f7 100644
+--- a/api/projects/quickwin_winrs.go
++++ b/api/projects/quickwin_winrs.go
+@@ -16,6 +16,7 @@ import (
+ 	"unicode/utf16"
+ 
+ 	"github.com/semaphoreui/semaphore/api/helpers"
++	"github.com/semaphoreui/semaphore/db"
+ 
+ 	"quickwin.dev/winrsexec"
+ )
+@@ -69,6 +70,8 @@ type winrsExecRequest struct {
+ 
+ // WinRSExec chạy 1 lệnh xuống 1 host Windows qua WinRM cert-auth, trả kết quả đồng bộ.
+ func WinRSExec(w http.ResponseWriter, r *http.Request) {
++	project := helpers.GetFromContext(r, "project").(db.Project)
++
+ 	var req winrsExecRequest
+ 	if !helpers.Bind(w, r, &req) {
+ 		return
+@@ -119,6 +122,10 @@ func WinRSExec(w http.ResponseWriter, r *http.Request) {
+ 		Timeout: 60 * time.Second,
+ 	})
+ 	if rerr != nil {
++		appendWinRSHistory(project.ID, winrsHistoryEntry{ // PATCH 0017
++			TS: time.Now().Unix(), Host: req.Host, Command: req.Command,
++			ExitCode: -1, OK: false, Error: winrsexec.Classify(rerr),
++		})
+ 		helpers.WriteJSON(w, http.StatusOK, map[string]any{
+ 			"ok":    false,
+ 			"error": winrsexec.Classify(rerr),
+@@ -126,6 +133,11 @@ func WinRSExec(w http.ResponseWriter, r *http.Request) {
+ 		return
+ 	}
+ 
++	appendWinRSHistory(project.ID, winrsHistoryEntry{ // PATCH 0017
++		TS: time.Now().Unix(), Host: req.Host, Command: req.Command,
++		ExitCode: res.ExitCode, OK: res.ExitCode == 0,
++	})
++
+ 	helpers.WriteJSON(w, http.StatusOK, map[string]any{
+ 		"ok":        res.ExitCode == 0,
+ 		"exit_code": res.ExitCode,
+diff --git a/api/projects/quickwin_winrs_history.go b/api/projects/quickwin_winrs_history.go
+new file mode 100644
+index 0000000..cf7cbc4
+--- /dev/null
++++ b/api/projects/quickwin_winrs_history.go
+@@ -0,0 +1,81 @@
++// QUICKWIN PATCH 0017 — lịch sử chạy WinRS Console.
++// Mỗi lần gõ lệnh ở WinRS Console được ghi tạm ra file JSONL trong tmp dir của project
++// (chỉ metadata: thời gian/host/lệnh/exit — KHÔNG lưu stdout). Giữ 100 dòng gần nhất.
++// UI đọc lại để xem/lặp lệnh cũ. Client (localStorage) nhớ last-run + tự prefill.
++// Spec: docs/L2-specs/core-patches/0017-winrs-history.md
++package projects
++
++import (
++	"encoding/json"
++	"net/http"
++	"os"
++	"path/filepath"
++	"strings"
++
++	"github.com/semaphoreui/semaphore/api/helpers"
++	"github.com/semaphoreui/semaphore/db"
++	"github.com/semaphoreui/semaphore/util"
++)
++
++const winrsHistoryMax = 100
++
++type winrsHistoryEntry struct {
++	TS       int64  `json:"ts"`
++	Host     string `json:"host"`
++	Command  string `json:"command"`
++	ExitCode int    `json:"exit_code"`
++	OK       bool   `json:"ok"`
++	Error    string `json:"error,omitempty"`
++}
++
++func winrsHistoryFile(projectID int) string {
++	dir := util.Config.GetProjectTmpDir(projectID)
++	return filepath.Join(dir, "winrs-history.jsonl")
++}
++
++// appendWinRSHistory ghi 1 entry, giữ tối đa winrsHistoryMax dòng (cắt cũ nhất).
++func appendWinRSHistory(projectID int, e winrsHistoryEntry) {
++	path := winrsHistoryFile(projectID)
++	_ = os.MkdirAll(filepath.Dir(path), 0755)
++
++	lines := readHistoryLines(path)
++	b, err := json.Marshal(e)
++	if err != nil {
++		return
++	}
++	lines = append(lines, string(b))
++	if len(lines) > winrsHistoryMax {
++		lines = lines[len(lines)-winrsHistoryMax:]
++	}
++	_ = os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0600)
++}
++
++func readHistoryLines(path string) []string {
++	data, err := os.ReadFile(path)
++	if err != nil {
++		return nil
++	}
++	var out []string
++	for _, ln := range strings.Split(string(data), "\n") {
++		if strings.TrimSpace(ln) != "" {
++			out = append(out, ln)
++		}
++	}
++	return out
++}
++
++// GetWinRSHistory trả lịch sử chạy WinRS Console của project (mới nhất trước).
++func GetWinRSHistory(w http.ResponseWriter, r *http.Request) {
++	project := helpers.GetFromContext(r, "project").(db.Project)
++	lines := readHistoryLines(winrsHistoryFile(project.ID))
++
++	entries := make([]winrsHistoryEntry, 0, len(lines))
++	// đảo ngược: mới nhất lên đầu
++	for i := len(lines) - 1; i >= 0; i-- {
++		var e winrsHistoryEntry
++		if json.Unmarshal([]byte(lines[i]), &e) == nil {
++			entries = append(entries, e)
++		}
++	}
++	helpers.WriteJSON(w, http.StatusOK, map[string]any{"history": entries})
++}
+diff --git a/api/router.go b/api/router.go
+index 50223d3..5b1b69d 100644
+--- a/api/router.go
++++ b/api/router.go
+@@ -330,6 +330,8 @@ func Route(
+ 	// QUICKWIN PATCH 0010 — WinRS console (chạy lệnh nhanh xuống 1 host Windows)
+ 	projectUserAPI.Path("/winrs/certs").HandlerFunc(projects.GetWinRSCerts).Methods("GET", "HEAD")
+ 	projectUserAPI.Path("/winrs/exec").HandlerFunc(projects.WinRSExec).Methods("POST")
++	// QUICKWIN PATCH 0017 — lịch sử chạy WinRS Console (file tạm project)
++	projectUserAPI.Path("/winrs/history").HandlerFunc(projects.GetWinRSHistory).Methods("GET", "HEAD")
+ 
+ 	projectUserAPI.Path("/environment").HandlerFunc(projects.GetEnvironment).Methods("GET", "HEAD")
+ 	projectUserAPI.Path("/environment").HandlerFunc(environmentController.AddEnvironment).Methods("POST")
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index 572585c..d595663 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -33,6 +33,9 @@ export default {
+   winrsNoCerts: 'No certificate found in certs dir',
+   winrsRun: 'Run',
+   winrsUnknownError: 'Unknown error',
++  winrsHistory: 'Recent commands',
++  winrsHistoryEmpty: 'No commands run yet.',
++  winrsReuse: 'Reuse',
+   loading: 'Loading…',
+   winrsHostHint: 'Run pwsh directly on the Windows host via WinRM (certificate). Place the cert in '
+     + 'the runner\'s {certsDir} folder (or set {envVar}).',
+diff --git a/web/src/views/project/WinRSConsole.vue b/web/src/views/project/WinRSConsole.vue
+index d3dadf0..df604e6 100644
+--- a/web/src/views/project/WinRSConsole.vue
++++ b/web/src/views/project/WinRSConsole.vue
+@@ -141,6 +141,40 @@
+           <pre class="WinRSConsoleOut WinRSConsoleErr">{{ stderr }}</pre>
+         </div>
+       </div>
++
++      <div class="mt-6">
++        <div class="subtitle-2 mb-1">
++          <v-icon small class="mr-1">mdi-history</v-icon>{{ $t('winrsHistory') }}
++        </div>
++        <div v-if="history.length === 0" class="caption grey--text">
++          {{ $t('winrsHistoryEmpty') }}
++        </div>
++        <v-simple-table v-else dense class="WinRSHistory">
++          <template v-slot:default>
++            <tbody>
++              <tr v-for="(h, i) in history" :key="i">
++                <td style="width: 150px;" class="caption grey--text">{{ formatTime(h.ts) }}</td>
++                <td style="width: 130px;"><code>{{ h.host }}</code></td>
++                <td>
++                  <v-chip
++                    x-small
++                    :color="h.ok ? 'success' : 'error'"
++                    text-color="white"
++                  >{{ h.ok ? 'ok' : (h.error || 'exit ' + h.exit_code) }}</v-chip>
++                </td>
++                <td style="max-width: 360px;">
++                  <span class="WinRSHistoryCmd">{{ h.command }}</span>
++                </td>
++                <td style="width: 80px;" class="text-right">
++                  <v-btn x-small text color="primary" @click="reuse(h)">
++                    {{ $t('winrsReuse') }}
++                  </v-btn>
++                </td>
++              </tr>
++            </tbody>
++          </template>
++        </v-simple-table>
++      </div>
+     </div>
+   </div>
+ </template>
+@@ -164,6 +198,17 @@
+ .WinRSConsoleErr {
+   color: #f48771;
+ }
++
++.WinRSHistoryCmd {
++  display: inline-block;
++  max-width: 340px;
++  overflow: hidden;
++  text-overflow: ellipsis;
++  white-space: nowrap;
++  vertical-align: bottom;
++  font-family: monospace;
++  font-size: 12px;
++}
+ </style>
+ <script>
+ /* eslint-disable import/no-extraneous-dependencies,import/extensions */
+@@ -194,6 +239,7 @@ export default {
+       stderr: '',
+       lastExit: null,
+       errorMsg: null,
++      history: [],
+       cmOptions: {
+         tabSize: 2,
+         mode: 'text/plain',
+@@ -204,7 +250,8 @@ export default {
+   },
+ 
+   async created() {
+-    await this.loadCerts();
++    this.restoreLastRun();
++    await Promise.all([this.loadCerts(), this.loadHistory()]);
+   },
+ 
+   methods: {
+@@ -212,6 +259,48 @@ export default {
+       EventBus.$emit('i-show-drawer');
+     },
+ 
++    lastRunKey() {
++      return `winrs-lastrun-${this.projectId}`;
++    },
++
++    restoreLastRun() {
++      try {
++        const raw = localStorage.getItem(this.lastRunKey());
++        if (!raw) return;
++        const v = JSON.parse(raw);
++        this.host = v.host || '';
++        this.port = v.port || 5986;
++        this.cert = v.cert || null;
++        this.command = v.command || '';
++      } catch (e) { /* ignore */ }
++    },
++
++    saveLastRun() {
++      try {
++        localStorage.setItem(this.lastRunKey(), JSON.stringify({
++          host: this.host, port: this.port, cert: this.cert, command: this.command,
++        }));
++      } catch (e) { /* ignore */ }
++    },
++
++    async loadHistory() {
++      try {
++        const { data } = await axios.get(`/api/project/${this.projectId}/winrs/history`);
++        this.history = data.history || [];
++      } catch (e) {
++        this.history = [];
++      }
++    },
++
++    reuse(entry) {
++      this.host = entry.host;
++      this.command = entry.command;
++    },
++
++    formatTime(ts) {
++      return new Date(ts * 1000).toLocaleString();
++    },
++
+     async enroll1click() {
+       this.enrolling = true;
+       this.errorMsg = null;
+@@ -250,6 +339,7 @@ export default {
+       this.stderr = '';
+       this.lastExit = null;
+       this.errorMsg = null;
++      this.saveLastRun();
+       try {
+         const { data } = await axios.post(`/api/project/${this.projectId}/winrs/exec`, {
+           host: this.host,
+@@ -268,6 +358,7 @@ export default {
+         this.errorMsg = e.response?.data?.error || e.message || this.$t('winrsUnknownError');
+       } finally {
+         this.running = false;
++        this.loadHistory();
+       }
+     },
+   },
