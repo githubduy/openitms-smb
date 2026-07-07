@@ -1,0 +1,153 @@
+# PATCH: 0013-menu-tooltips
+# WHY: Menu sidebar khó hiểu với người dùng KHÔNG chuyên IT — cần giải thích ngắn mỗi mục
+#      "cần tạo gì / ý nghĩa là gì" (vd Inventory). Mục tiêu SMB-friendly.
+# WHAT: App.vue — computed navTooltips (map key→mô tả tiếng Việt cho templates/schedule/inventory/
+#       winrs_console/environment/keys/repositories/integrations/team/runners); bọc 2 vòng render
+#       nav (pinned + unpinned) bằng v-tooltip right (open-delay 300, disabled khi không có mô tả).
+# SPEC: docs/L2-specs/core-patches/0013-menu-tooltips.md
+# BASELINE: v2.18.16
+#
+diff --git a/web/src/App.vue b/web/src/App.vue
+index 150f9f5..f0fdb0f 100644
+--- a/web/src/App.vue
++++ b/web/src/App.vue
+@@ -257,27 +257,39 @@
+           </v-list-item-content>
+         </v-list-item>
+ 
+-        <v-list-item
++        <v-tooltip
++          right
++          max-width="280"
+           v-for="item in pinnedNavItemsList"
+           :key="item.key"
+-          :to="item.to"
+-          :data-testid="item.testId"
+-          class="nav-item--pinnable"
++          :disabled="!navTooltips[item.key]"
++          open-delay="300"
+         >
+-          <v-list-item-icon>
+-            <v-icon>{{ item.icon }}</v-icon>
+-          </v-list-item-icon>
++          <template v-slot:activator="{ on, attrs }">
++            <v-list-item
++              :to="item.to"
++              :data-testid="item.testId"
++              class="nav-item--pinnable"
++              v-on="on"
++              v-bind="attrs"
++            >
++              <v-list-item-icon>
++                <v-icon>{{ item.icon }}</v-icon>
++              </v-list-item-icon>
+ 
+-          <v-list-item-content>
+-            <v-list-item-title>{{ item.title }}</v-list-item-title>
+-          </v-list-item-content>
++              <v-list-item-content>
++                <v-list-item-title>{{ item.title }}</v-list-item-title>
++              </v-list-item-content>
+ 
+-          <div class="nav-pin-wrap" v-if="navEditMode && navItems.length > 1">
+-            <v-btn icon @click.stop.prevent="togglePin(item.key)" :title="$t('unpin')">
+-              <v-icon small>mdi-pin-off-outline</v-icon>
+-            </v-btn>
+-          </div>
+-        </v-list-item>
++              <div class="nav-pin-wrap" v-if="navEditMode && navItems.length > 1">
++                <v-btn icon @click.stop.prevent="togglePin(item.key)" :title="$t('unpin')">
++                  <v-icon small>mdi-pin-off-outline</v-icon>
++                </v-btn>
++              </div>
++            </v-list-item>
++          </template>
++          <span>{{ navTooltips[item.key] }}</span>
++        </v-tooltip>
+ 
+         <template v-if="unpinnedNavItems.length > 0">
+           <v-list-item @click="showMoreToggle = !showMoreToggle" class="nav-more-toggle">
+@@ -293,27 +305,39 @@
+           </v-list-item>
+ 
+           <template v-if="showMoreToggle">
+-            <v-list-item
++            <v-tooltip
++              right
++              max-width="280"
+               v-for="item in unpinnedNavItems"
+               :key="'unpinned-' + item.key"
+-              :to="item.to"
+-              :data-testid="item.testId"
+-              class="nav-item--pinnable"
++              :disabled="!navTooltips[item.key]"
++              open-delay="300"
+             >
+-              <v-list-item-icon>
+-                <v-icon>{{ item.icon }}</v-icon>
+-              </v-list-item-icon>
++              <template v-slot:activator="{ on, attrs }">
++                <v-list-item
++                  :to="item.to"
++                  :data-testid="item.testId"
++                  class="nav-item--pinnable"
++                  v-on="on"
++                  v-bind="attrs"
++                >
++                  <v-list-item-icon>
++                    <v-icon>{{ item.icon }}</v-icon>
++                  </v-list-item-icon>
+ 
+-              <v-list-item-content>
+-                <v-list-item-title>{{ item.title }}</v-list-item-title>
+-              </v-list-item-content>
++                  <v-list-item-content>
++                    <v-list-item-title>{{ item.title }}</v-list-item-title>
++                  </v-list-item-content>
+ 
+-              <div class="nav-pin-wrap" v-if="navEditMode">
+-                <v-btn icon @click.stop.prevent="togglePin(item.key)" :title="$t('pin')">
+-                  <v-icon small>mdi-pin-outline</v-icon>
+-                </v-btn>
+-              </div>
+-            </v-list-item>
++                  <div class="nav-pin-wrap" v-if="navEditMode">
++                    <v-btn icon @click.stop.prevent="togglePin(item.key)" :title="$t('pin')">
++                      <v-icon small>mdi-pin-outline</v-icon>
++                    </v-btn>
++                  </div>
++                </v-list-item>
++              </template>
++              <span>{{ navTooltips[item.key] }}</span>
++            </v-tooltip>
+           </template>
+         </template>
+       </v-list>
+@@ -1247,6 +1271,27 @@ export default {
+     unpinnedNavItems() {
+       return this.navItems.filter((item) => this.unpinnedNavKeys.includes(item.key));
+     },
++
++    // QUICKWIN PATCH 0013 — giải thích ngắn từng menu cho người dùng không chuyên IT.
++    navTooltips() {
++      return {
++        templates: 'Nơi định nghĩa "việc cần chạy" (cài phần mềm, cập nhật, khởi động lại dịch vụ...). '
++          + 'Mỗi mẫu gắn 1 script + máy đích; bấm 1 nút là chạy.',
++        schedule: 'Hẹn giờ tự động chạy các mẫu tác vụ (vd: mỗi đêm sao lưu, mỗi tuần cập nhật).',
++        inventory: 'Danh sách máy đích để chạy tác vụ. "WinRS Endpoints" = máy Windows (qua cert); '
++          + '"Ansible Inventory" = nhóm máy quản lý kiểu Ansible.',
++        winrs_console: 'Gõ nhanh 1 lệnh PowerShell xuống 1 máy Windows và xem kết quả ngay — '
++          + 'không cần tạo mẫu tác vụ.',
++        environment: 'Biến cấu hình / tham số dùng chung cho tác vụ (vd: đường dẫn, tên miền). '
++          + 'Tách khỏi script để dễ đổi.',
++        keys: 'Kho khóa & mật khẩu bảo mật (SSH key, mật khẩu, token) để kết nối máy đích. '
++          + 'Được mã hoá, không hiện dạng chữ.',
++        repositories: 'Kho chứa script/playbook (git). Mỗi project có sẵn 1 repo local (Gitea).',
++        integrations: 'Kết nối OpenITMS với dịch vụ ngoài (webhook) để tự động kích hoạt tác vụ.',
++        team: 'Quản lý thành viên project + phân quyền ai được xem / chạy / sửa.',
++        runners: 'Máy "thợ chạy" thực thi tác vụ khi không chạy trực tiếp trên máy chủ OpenITMS.',
++      };
++    },
+   },
+ 
+   async created() {

@@ -3,6 +3,11 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-07 — 0013-menu-tooltips.patch
+**WHY:** menu sidebar khó hiểu với người không chuyên IT — cần giải thích "cần tạo gì / ý nghĩa".
+**WHAT:** App.vue computed navTooltips (mô tả tiếng Việt mỗi menu) + bọc 2 vòng render nav bằng
+v-tooltip right. Chỉ frontend. Spec 0013.
+
 ## 2026-07-07 — 0012-view-local-repo.patch
 **WHY:** repo local Gitea (0008) có token nhúng trong GitURL → cần link xem/mở repo per project (G-05).
 **WHAT:** api/projects/quickwin_gitea_view.go (GetProjectGiteaRepo: tìm repo local, strip token,
