@@ -91,10 +91,79 @@ GRANT ALL PRIVILEGES ON openitms.* TO 'openitms'@'localhost';
 FLUSH PRIVILEGES;
 EOF
 
-echo "==> [6/6] Admin mặc định + start app"
+echo "==> [6/7] Admin mặc định"
 "$PREFIX/bin/$BIN_NAME" user add --admin --login "$ADMIN_LOGIN" --name Admin \
   --email admin@localhost --password "$ADMIN_PASS" --config "$PREFIX/config/config.json" \
   2>/dev/null || echo "    admin đã tồn tại — bỏ qua (idempotent)"
+
+# --- Gitea (git server local) — chỉ khi có binary bundle (ADR-0005) ---
+GITEA_ENV="$PREFIX/config/gitea.env"
+if [ -x "$PREFIX/gitea/gitea" ]; then
+  echo "==> [7/7] Provision Gitea (git server local)"
+  GITEA_DB_PASS="${OPENITMS_GITEA_DB_PASSWORD:-OpenITMS_Gitea_2026_Secure}"  # INI-safe (không # ; ")
+  GITEA_ADMIN_PASS="${OPENITMS_GITEA_ADMIN_PASSWORD:-OpenITMS-Gitea-Admin-2026}"
+  GDIR="$PREFIX/gitea"; mkdir -p "$GDIR/custom/conf" "$GDIR/data" "$GDIR/repos" "$GDIR/log"
+  chown -R "$DB_USER:$DB_USER" "$GDIR"
+  "$PREFIX/mariadb/bin/mariadb" --socket="$SOCK" -u root <<SQL
+CREATE DATABASE IF NOT EXISTS gitea CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'gitea'@'localhost' IDENTIFIED BY '$GITEA_DB_PASS';
+ALTER USER 'gitea'@'localhost' IDENTIFIED BY '$GITEA_DB_PASS';
+GRANT ALL PRIVILEGES ON gitea.* TO 'gitea'@'localhost';
+FLUSH PRIVILEGES;
+SQL
+  if [ ! -f "$GDIR/custom/conf/app.ini" ]; then
+    cat > "$GDIR/custom/conf/app.ini" <<EOF
+APP_NAME = OpenITMS-SMB Git
+RUN_MODE = prod
+RUN_USER = $DB_USER
+[server]
+PROTOCOL = http
+HTTP_ADDR = 127.0.0.1
+HTTP_PORT = 3080
+ROOT_URL = http://127.0.0.1:3080/
+DISABLE_SSH = true
+OFFLINE_MODE = true
+[database]
+DB_TYPE = mysql
+HOST = $SOCK
+NAME = gitea
+USER = gitea
+PASSWD = $GITEA_DB_PASS
+CHARSET = utf8mb4
+[repository]
+ROOT = $GDIR/repos
+[security]
+INSTALL_LOCK = true
+SECRET_KEY = $(head -c32 /dev/urandom | base64 | tr -d '=+/' | head -c40)
+INTERNAL_TOKEN = $(head -c32 /dev/urandom | base64 | tr -d '=+/' | head -c40)
+[service]
+DISABLE_REGISTRATION = true
+REQUIRE_SIGNIN_VIEW = true
+[log]
+ROOT_PATH = $GDIR/log
+LEVEL = Info
+EOF
+    chmod 640 "$GDIR/custom/conf/app.ini"; chown "$DB_USER:$DB_USER" "$GDIR/custom/conf/app.ini"
+    export GITEA_WORK_DIR="$GDIR"
+    sudo -u "$DB_USER" GITEA_WORK_DIR="$GDIR" "$GDIR/gitea" migrate --config "$GDIR/custom/conf/app.ini"
+    sudo -u "$DB_USER" GITEA_WORK_DIR="$GDIR" "$GDIR/gitea" admin user create --admin \
+      --username openitms-admin --password "$GITEA_ADMIN_PASS" --email admin@openitms.local \
+      --must-change-password=false --config "$GDIR/custom/conf/app.ini" || true
+    GITEA_TOKEN="$(sudo -u "$DB_USER" GITEA_WORK_DIR="$GDIR" "$GDIR/gitea" admin user generate-access-token \
+      --username openitms-admin --scopes all --raw --config "$GDIR/custom/conf/app.ini" | tail -1)"
+    printf 'QUICKWIN_GITEA_ADDR=127.0.0.1:3080\nQUICKWIN_GITEA_ORG=openitms\nQUICKWIN_GITEA_TOKEN=%s\n' \
+      "$GITEA_TOKEN" > "$GITEA_ENV"
+    chmod 600 "$GITEA_ENV"
+  fi
+  install -m 644 "$HERE/systemd/openitms-gitea.service" "/etc/systemd/system/openitms-gitea.service"
+  sed -i "s|@PREFIX@|$PREFIX|g; s|@DBUSER@|$DB_USER|g" "/etc/systemd/system/openitms-gitea.service"
+  systemctl daemon-reload
+  systemctl enable --now openitms-gitea
+else
+  printf '' > "$GITEA_ENV"   # không có Gitea → env rỗng
+fi
+
+echo "==> Start app"
 systemctl enable --now "$SVC_APP"
 
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"

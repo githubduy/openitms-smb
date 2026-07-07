@@ -40,9 +40,16 @@ cp "$ROOT"/{LICENSE,LICENSE-SEMAPHORE,NOTICE.md} "$STAGE/licenses/"
 ( cd "$ROOT/upstream" && "$GO" run github.com/google/go-licenses@latest report ./... > "$STAGE/licenses/THIRD_PARTY_LICENSES.md" 2>/dev/null ) || \
   echo "    (go-licenses report skip — offline; CI sinh đầy đủ)"
 
-echo "==> [6/6] MariaDB + pwsh (bundled)"
+echo "==> [6/6] MariaDB + pwsh + Gitea (bundled)"
 if [ -d "$ROOT/dist/deps/mariadb" ]; then cp -a "$ROOT/dist/deps/mariadb" "$STAGE/"; else echo "    MariaDB chưa fetch (installer/fetch-deps.sh) — bundle core-only"; fi
 if [ -d "$ROOT/dist/deps/pwsh" ]; then mkdir -p "$STAGE/bin/pwsh"; cp -a "$ROOT/dist/deps/pwsh/." "$STAGE/bin/pwsh/"; else echo "    pwsh chưa fetch — bundle core-only"; fi
+# Gitea: single binary → dist/deps/gitea/ (fetch-deps copy binary vào đó)
+if [ -d "$ROOT/dist/deps/gitea" ]; then
+  mkdir -p "$STAGE/gitea"; cp -a "$ROOT/dist/deps/gitea/." "$STAGE/gitea/"
+  chmod +x "$STAGE"/gitea/gitea* 2>/dev/null || true
+else
+  echo "    Gitea chưa fetch — bundle không có git server local"
+fi
 
 echo "==> tar.gz + checksum"
 TAR="$ROOT/dist/openitms-smb-$VER-linux-amd64.tar.gz"

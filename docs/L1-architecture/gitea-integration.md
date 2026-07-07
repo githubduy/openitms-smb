@@ -1,6 +1,6 @@
 ---
 level: L1
-status: draft
+status: approved
 owners: [maintainer]
 updated: 2026-07-07
 related-code: [gitea-manager/, core-patches/, installer/]
@@ -57,7 +57,15 @@ ADR-0005. Mục tiêu: mỗi project OpenITMS có sẵn 1 repo local; 1 project 
 - **Port**: 3080 nội bộ (không expose ra ngoài mặc định; reverse proxy nếu cần công khai).
 - **Auth git**: token/deploy-key local giữa Semaphore ↔ Gitea (không cần user nhập).
 
-## Backlog (Phase — chèn vào roadmap)
+## Backlog — trạng thái (2026-07-07)
+- ✅ G-01 bundle Gitea (deps.lock + fetch-deps vendor + app.ini + systemd + install.sh provision)
+- ✅ G-02 gitea-manager (client + test)
+- ✅ G-03 patch 0008 hook project-create → auto CreateRepo (E2E verified)
+- ⬜ G-04 seed project host mặc định (first-run)
+- ⬜ G-05 UI xem repo local
+- ✅ G-06 E2E: tạo project → repo tự sinh trong Gitea (verified)
+
+### (cũ)
 - G-01: bundle Gitea (vendor + deps.lock + app.ini + systemd) + fetch-deps hỗ trợ gitea.
 - G-02: gitea-manager (start/health/provision + GiteaClient) + test.
 - G-03: patch 0007 hook project-create → auto CreateRepo.

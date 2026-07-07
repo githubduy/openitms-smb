@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenITMS-SMB Gitea (git server local)
+After=openitms-db.service
+Requires=openitms-db.service
+
+[Service]
+Type=simple
+User=@DBUSER@
+WorkingDirectory=@PREFIX@/gitea
+Environment=GITEA_WORK_DIR=@PREFIX@/gitea
+ExecStart=@PREFIX@/gitea/gitea web --config @PREFIX@/gitea/custom/conf/app.ini
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
