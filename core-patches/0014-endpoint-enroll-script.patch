@@ -1,0 +1,341 @@
+# PATCH: 0014-endpoint-enroll-script
+# WHY: Người dùng cần cách CHUẨN BỊ máy Windows (bật WinRM+cert / OpenSSH) để OpenITMS quản lý —
+#      trước đây phải tự làm thủ công. Cho tải script cài đặt endpoint ngay trên web UI (SMB-friendly).
+# WHAT: api/projects/scripts/{winrs-enroll,ssh-enroll}.ps1 MỚI (bật WinRM HTTPS+cert / OpenSSH server,
+#       xuất PEM + hướng dẫn nạp lên OpenITMS). api/projects/quickwin_enroll.go MỚI — GetEnrollScript
+#       (go:embed 2 script, tải về theo {kind}=winrs|ssh). router.go +route GET /endpoint/enroll-script/{kind}.
+#       UI: WinRSConsole.vue thêm panel "Tải script chuẩn bị endpoint" (2 nút); InventoryForm.vue thêm
+#       link tải script ở editor WinRS.
+# SPEC: docs/L2-specs/core-patches/0014-endpoint-enroll-script.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/quickwin_enroll.go b/api/projects/quickwin_enroll.go
+new file mode 100644
+index 0000000..bc9b554
+--- /dev/null
++++ b/api/projects/quickwin_enroll.go
+@@ -0,0 +1,40 @@
++// QUICKWIN PATCH 0014 — tải script chuẩn bị endpoint (WinRS / SSH) từ web UI.
++// Người dùng (kể cả không chuyên) tải script về, chạy AS ADMIN trên máy Windows cần quản lý;
++// script bật WinRM+cert (hoặc OpenSSH) và xuất chứng chỉ để nạp lên OpenITMS.
++// Script nhúng vào binary qua go:embed (không phụ thuộc file ngoài lúc chạy).
++// Spec: docs/L2-specs/core-patches/0014-endpoint-enroll-script.md
++package projects
++
++import (
++	_ "embed"
++	"net/http"
++
++	"github.com/gorilla/mux"
++)
++
++//go:embed scripts/winrs-enroll.ps1
++var winrsEnrollScript string
++
++//go:embed scripts/ssh-enroll.ps1
++var sshEnrollScript string
++
++// GetEnrollScript trả script chuẩn bị endpoint theo {kind} = winrs | ssh (tải về dạng .ps1).
++func GetEnrollScript(w http.ResponseWriter, r *http.Request) {
++	kind := mux.Vars(r)["kind"]
++
++	var content, filename string
++	switch kind {
++	case "winrs":
++		content, filename = winrsEnrollScript, "openitms-winrs-enroll.ps1"
++	case "ssh":
++		content, filename = sshEnrollScript, "openitms-ssh-enroll.ps1"
++	default:
++		http.Error(w, "kind phải là 'winrs' hoặc 'ssh'", http.StatusBadRequest)
++		return
++	}
++
++	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
++	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
++	w.Header().Set("X-Content-Type-Options", "nosniff")
++	_, _ = w.Write([]byte(content))
++}
+diff --git a/api/projects/scripts/ssh-enroll.ps1 b/api/projects/scripts/ssh-enroll.ps1
+new file mode 100644
+index 0000000..7bcb185
+--- /dev/null
++++ b/api/projects/scripts/ssh-enroll.ps1
+@@ -0,0 +1,81 @@
++# ============================================================================
++#  OpenITMS — Chuẩn bị máy Windows để quản lý từ xa qua SSH (OpenSSH Server)
++# ============================================================================
++#  Chạy TRÊN MÁY WINDOWS cần quản lý, trong PowerShell "Run as Administrator".
++#
++#  Nó sẽ:
++#    1. Cài + bật OpenSSH Server (dịch vụ sshd, cổng 22).
++#    2. Mở firewall cổng 22.
++#    3. Đặt PowerShell làm shell mặc định của SSH (để chạy pwsh từ xa).
++#    4. Thêm public key của OpenITMS vào authorized_keys (nếu bạn dán -PublicKey).
++#
++#  SAU KHI CHẠY XONG:
++#    - Nếu chưa dán key: copy public key của OpenITMS (Key Store) rồi chạy lại với
++#        -PublicKey "ssh-ed25519 AAAA... openitms"
++#    - Vào OpenITMS > Key Store: thêm private key tương ứng (loại SSH).
++#    - Inventory (Ansible/SSH) hoặc template: dùng IP máy này + key đó.
++#
++#  ⚠️  Bật SSH server là thay đổi bảo mật hệ thống. Chỉ chạy trên máy nội bộ bạn quản trị.
++# ============================================================================
++
++[CmdletBinding()]
++param(
++  [string]$PublicKey = "",
++  [string]$SshUser = ""   # để trống = user đang chạy script (Administrators dùng administrators_authorized_keys)
++)
++
++$ErrorActionPreference = "Stop"
++function Fail($m){ Write-Host "LỖI: $m" -ForegroundColor Red; exit 1 }
++
++$id = [Security.Principal.WindowsIdentity]::GetCurrent()
++if (-not (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
++      [Security.Principal.WindowsBuiltInRole]::Administrator)) {
++  Fail "Hãy mở PowerShell bằng 'Run as Administrator' rồi chạy lại."
++}
++
++Write-Host "==> 1/4  Cài OpenSSH Server" -ForegroundColor Cyan
++$cap = Get-WindowsCapability -Online -Name OpenSSH.Server* -ErrorAction SilentlyContinue
++if ($cap -and $cap.State -ne 'Installed') {
++  Add-WindowsCapability -Online -Name $cap.Name | Out-Null
++}
++
++Write-Host "==> 2/4  Bật dịch vụ sshd + firewall" -ForegroundColor Cyan
++Set-Service -Name sshd -StartupType Automatic
++Start-Service sshd
++if (-not (Get-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -ErrorAction SilentlyContinue)) {
++  New-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -DisplayName "OpenSSH Server (OpenITMS)" `
++    -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 | Out-Null
++}
++
++Write-Host "==> 3/4  Đặt PowerShell làm shell mặc định của SSH" -ForegroundColor Cyan
++$pwsh = (Get-Command powershell.exe).Source
++New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell `
++  -Value $pwsh -PropertyType String -Force | Out-Null
++
++Write-Host "==> 4/4  Cấu hình authorized_keys" -ForegroundColor Cyan
++if ([string]::IsNullOrWhiteSpace($PublicKey)) {
++  Write-Host "    (bỏ qua — chưa cung cấp -PublicKey)" -ForegroundColor Yellow
++} else {
++  $admins = "$env:ProgramData\ssh\administrators_authorized_keys"
++  Add-Content -Path $admins -Value $PublicKey -Encoding ascii
++  # Quyền chuẩn cho administrators_authorized_keys
++  icacls $admins /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F" | Out-Null
++  Write-Host "    Đã thêm key vào $admins"
++}
++
++$ips = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
++        Where-Object { $_.IPAddress -notlike '169.*' -and $_.IPAddress -ne '127.0.0.1' } |
++        Select-Object -ExpandProperty IPAddress) -join ', '
++
++Write-Host ""
++Write-Host "================= HOÀN TẤT =================" -ForegroundColor Green
++Write-Host "SSH server (sshd) đang chạy, cổng 22."
++Write-Host "IP máy này: $ips"
++Write-Host ""
++if ([string]::IsNullOrWhiteSpace($PublicKey)) {
++  Write-Host "CÒN LẠI: chạy lại với public key của OpenITMS:" -ForegroundColor Yellow
++  Write-Host '  .\openitms-ssh-enroll.ps1 -PublicKey "ssh-ed25519 AAAA... openitms"'
++} else {
++  Write-Host "BƯỚC TIẾP THEO: trên OpenITMS thêm private key (Key Store) + dùng IP máy này." -ForegroundColor Yellow
++}
++Write-Host "==========================================="
+diff --git a/api/projects/scripts/winrs-enroll.ps1 b/api/projects/scripts/winrs-enroll.ps1
+new file mode 100644
+index 0000000..c6f339e
+--- /dev/null
++++ b/api/projects/scripts/winrs-enroll.ps1
+@@ -0,0 +1,114 @@
++# ============================================================================
++#  OpenITMS — Chuẩn bị máy Windows để quản lý từ xa qua WinRS (WinRM + chứng chỉ)
++# ============================================================================
++#  Chạy script này TRÊN MÁY WINDOWS bạn muốn quản lý, trong cửa sổ
++#  PowerShell "Run as Administrator".
++#
++#  Nó sẽ:
++#    1. Tạo 1 tài khoản cục bộ để OpenITMS đăng nhập (mặc định 'openitms').
++#    2. Tạo chứng chỉ (certificate) cho tài khoản đó.
++#    3. Bật WinRM qua HTTPS (cổng 5986) + cho phép đăng nhập bằng chứng chỉ.
++#    4. Xuất ra 1 file .pem (chứng chỉ + khóa) để bạn tải LÊN máy chủ OpenITMS.
++#
++#  SAU KHI CHẠY XONG:
++#    - Copy file PEM (đường dẫn in ở cuối) vào thư mục 'certs/' của máy chủ OpenITMS.
++#    - Vào OpenITMS > Inventory > tạo "WinRS Endpoints", thêm dòng:
++#          <IP-máy-này> cert=<tên-file.pem>
++#    - Xong! Có thể chạy tác vụ / WinRS Console xuống máy này.
++#
++#  ⚠️  Script thay đổi cấu hình bảo mật (WinRM listener, cert auth). Chỉ chạy trên
++#      máy trong mạng nội bộ mà bạn có quyền quản trị.
++# ============================================================================
++
++[CmdletBinding()]
++param(
++  [string]$User = "openitms",
++  [string]$Password = "",
++  [string]$OutFile = "$env:USERPROFILE\Desktop\openitms-$($env:COMPUTERNAME).pem"
++)
++
++$ErrorActionPreference = "Stop"
++
++function Fail($msg) { Write-Host "LỖI: $msg" -ForegroundColor Red; exit 1 }
++
++# 0. Kiểm tra quyền Administrator
++$id = [Security.Principal.WindowsIdentity]::GetCurrent()
++if (-not (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
++      [Security.Principal.WindowsBuiltInRole]::Administrator)) {
++  Fail "Hãy mở PowerShell bằng 'Run as Administrator' rồi chạy lại."
++}
++
++if ([string]::IsNullOrWhiteSpace($Password)) {
++  # Sinh mật khẩu ngẫu nhiên mạnh (tài khoản chỉ dùng nội bộ cho cert-auth)
++  $bytes = New-Object 'System.Byte[]' 18
++  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
++  $Password = ([Convert]::ToBase64String($bytes) -replace '[^A-Za-z0-9]','') + "Aa1!"
++}
++$secure = ConvertTo-SecureString $Password -AsPlainText -Force
++
++Write-Host "==> 1/5  Tạo tài khoản cục bộ '$User'" -ForegroundColor Cyan
++if (Get-LocalUser -Name $User -ErrorAction SilentlyContinue) {
++  Set-LocalUser -Name $User -Password $secure
++} else {
++  New-LocalUser -Name $User -Password $secure -FullName "OpenITMS Agent" `
++    -Description "Tài khoản OpenITMS quản lý từ xa" -PasswordNeverExpires | Out-Null
++}
++Add-LocalGroupMember -Group "Administrators" -Member $User -ErrorAction SilentlyContinue
++
++Write-Host "==> 2/5  Tạo chứng chỉ cho '$User'" -ForegroundColor Cyan
++$clientCert = New-SelfSignedCertificate `
++  -Type Custom -KeyUsage DigitalSignature -KeySpec Signature `
++  -Subject "CN=$User" `
++  -TextExtension @("2.5.29.37={text}1.3.6.1.5.5.7.3.2", "2.5.29.17={text}upn=$User@localhost") `
++  -CertStoreLocation "Cert:\CurrentUser\My"
++
++$serverCert = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME, "localhost" `
++  -CertStoreLocation "Cert:\LocalMachine\My"
++
++Write-Host "==> 3/5  Tin cậy chứng chỉ (Root + TrustedPeople)" -ForegroundColor Cyan
++$tmpCer = Join-Path $env:TEMP "openitms-client.cer"
++Export-Certificate -Cert $clientCert -FilePath $tmpCer | Out-Null
++Import-Certificate -FilePath $tmpCer -CertStoreLocation "Cert:\LocalMachine\Root" | Out-Null
++Import-Certificate -FilePath $tmpCer -CertStoreLocation "Cert:\LocalMachine\TrustedPeople" | Out-Null
++
++Write-Host "==> 4/5  Bật WinRM HTTPS (5986) + đăng nhập bằng chứng chỉ" -ForegroundColor Cyan
++if ((Get-Service WinRM).Status -ne 'Running') { Start-Service WinRM }
++Remove-WSManInstance winrm/config/Listener -SelectorSet @{Address="*";Transport="HTTPS"} -ErrorAction SilentlyContinue
++New-WSManInstance winrm/config/Listener -SelectorSet @{Address="*";Transport="HTTPS"} `
++  -ValueSet @{Hostname=$env:COMPUTERNAME;CertificateThumbprint=$serverCert.Thumbprint} | Out-Null
++Set-Item -Path WSMan:\localhost\Service\Auth\Certificate -Value $true
++New-NetFirewallRule -DisplayName "OpenITMS WinRM HTTPS 5986" -Direction Inbound `
++  -LocalPort 5986 -Protocol TCP -Action Allow -ErrorAction SilentlyContinue | Out-Null
++New-Item -Path WSMan:\localhost\ClientCertificate `
++  -Subject "$User@localhost" -URI * -Issuer $clientCert.Thumbprint `
++  -Credential (New-Object System.Management.Automation.PSCredential($User, $secure)) -Force | Out-Null
++
++Write-Host "==> 5/5  Xuất file PEM (chứng chỉ + khóa)" -ForegroundColor Cyan
++$pfxPath = Join-Path $env:TEMP "openitms-client.pfx"
++$pfxPass = ConvertTo-SecureString "pfx" -AsPlainText -Force
++Export-PfxCertificate -Cert $clientCert -FilePath $pfxPath -Password $pfxPass | Out-Null
++$col = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection
++$col.Import($pfxPath, "pfx", "Exportable")
++$c = $col[0]
++$certB64 = [Convert]::ToBase64String($c.RawData, 'InsertLineBreaks')
++$keyB64  = [Convert]::ToBase64String($c.GetRSAPrivateKey().ExportPkcs8PrivateKey(), 'InsertLineBreaks')
++$pem = "-----BEGIN CERTIFICATE-----`n$certB64`n-----END CERTIFICATE-----`n" +
++       "-----BEGIN PRIVATE KEY-----`n$keyB64`n-----END PRIVATE KEY-----`n"
++Set-Content -Path $OutFile -Value $pem -Encoding ascii
++Remove-Item $pfxPath, $tmpCer -ErrorAction SilentlyContinue
++
++$ips = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
++        Where-Object { $_.IPAddress -notlike '169.*' -and $_.IPAddress -ne '127.0.0.1' } |
++        Select-Object -ExpandProperty IPAddress) -join ', '
++
++Write-Host ""
++Write-Host "================= HOÀN TẤT =================" -ForegroundColor Green
++Write-Host "File chứng chỉ (PEM): $OutFile"
++Write-Host "IP máy này         : $ips"
++Write-Host ""
++Write-Host "BƯỚC TIẾP THEO trên OpenITMS:" -ForegroundColor Yellow
++Write-Host "  1. Copy file PEM ở trên vào thư mục 'certs/' của máy chủ OpenITMS."
++Write-Host "  2. Inventory > New Inventory > WinRS Endpoints, thêm dòng:"
++Write-Host "         $($ips.Split(',')[0].Trim()) cert=$(Split-Path $OutFile -Leaf)"
++Write-Host "  3. Xong — chạy WinRS Console / tác vụ xuống máy này."
++Write-Host "==========================================="
+diff --git a/api/router.go b/api/router.go
+index 10c3c6b..a6a5792 100644
+--- a/api/router.go
++++ b/api/router.go
+@@ -315,6 +315,9 @@ func Route(
+ 	// QUICKWIN PATCH 0012 — xem repo local (Gitea) của project (URL đã strip token)
+ 	projectUserAPI.Path("/gitea/repo").HandlerFunc(projects.GetProjectGiteaRepo).Methods("GET", "HEAD")
+ 
++	// QUICKWIN PATCH 0014 — tải script chuẩn bị endpoint (winrs|ssh)
++	projectUserAPI.Path("/endpoint/enroll-script/{kind}").HandlerFunc(projects.GetEnrollScript).Methods("GET", "HEAD")
++
+ 	projectUserAPI.Path("/inventory").HandlerFunc(projects.GetInventory).Methods("GET", "HEAD")
+ 	projectUserAPI.Path("/inventory").HandlerFunc(projects.AddInventory).Methods("POST")
+ 
+diff --git a/web/src/components/InventoryForm.vue b/web/src/components/InventoryForm.vue
+index 2a73eb0..1109910 100644
+--- a/web/src/components/InventoryForm.vue
++++ b/web/src/components/InventoryForm.vue
+@@ -158,6 +158,10 @@ win-app.lab:5986 cert=app.pem key=app.key"
+         Chạy pwsh trực tiếp xuống host Windows qua WinRM (cert).
+         Cert đặt trong thư mục <code>certs/</code> của runner
+         (hoặc set <code>QUICKWIN_WINRS_DEFAULT_CERT</code>).
++        <a
++          :href="`/api/project/${projectId}/endpoint/enroll-script/winrs`"
++          download
++        >Tải script chuẩn bị máy Windows</a> → chạy AS ADMIN trên máy đích để tạo cert.
+       </div>
+     </div>
+ 
+diff --git a/web/src/views/project/WinRSConsole.vue b/web/src/views/project/WinRSConsole.vue
+index ac669ea..f01f106 100644
+--- a/web/src/views/project/WinRSConsole.vue
++++ b/web/src/views/project/WinRSConsole.vue
+@@ -16,6 +16,43 @@
+         dùng Task Template (app WinRS) nếu cần lịch sử/lịch chạy.
+       </v-alert>
+ 
++      <v-expansion-panels class="mb-4" flat>
++        <v-expansion-panel style="border: 1px solid #e0e0e0;">
++          <v-expansion-panel-header>
++            <div>
++              <v-icon color="#0078d4" class="mr-2">mdi-download</v-icon>
++              Chưa có máy nào? Tải script chuẩn bị endpoint (chạy trên máy Windows cần quản lý)
++            </div>
++          </v-expansion-panel-header>
++          <v-expansion-panel-content>
++            <p class="body-2 mb-3">
++              Tải script về, chạy bằng <strong>PowerShell (Run as Administrator)</strong> trên
++              máy Windows bạn muốn quản lý. Script bật kết nối từ xa + xuất chứng chỉ; làm theo
++              hướng dẫn in ra cuối script để nạp lên OpenITMS.
++            </p>
++            <v-btn
++              color="primary"
++              class="mr-3 mb-2"
++              :href="`/api/project/${projectId}/endpoint/enroll-script/winrs`"
++              download
++            >
++              <v-icon left>mdi-microsoft-windows</v-icon>
++              Script WinRS (WinRM + cert)
++            </v-btn>
++            <v-btn
++              outlined
++              color="primary"
++              class="mb-2"
++              :href="`/api/project/${projectId}/endpoint/enroll-script/ssh`"
++              download
++            >
++              <v-icon left>mdi-console-network</v-icon>
++              Script SSH (OpenSSH)
++            </v-btn>
++          </v-expansion-panel-content>
++        </v-expansion-panel>
++      </v-expansion-panels>
++
+       <v-row>
+         <v-col cols="8">
+           <v-text-field

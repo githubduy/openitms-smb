@@ -3,6 +3,12 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-07 — 0014-endpoint-enroll-script.patch
+**WHY:** cần cách chuẩn bị máy Windows (WinRM+cert / OpenSSH) để OpenITMS quản lý — tải script ngay trên web.
+**WHAT:** api/projects/scripts/{winrs-enroll,ssh-enroll}.ps1 (bật WinRM HTTPS+cert / OpenSSH, xuất PEM +
+hướng dẫn); quickwin_enroll.go (go:embed, GetEnrollScript tải theo kind=winrs|ssh); router.go +route
+GET /endpoint/enroll-script/{kind}; UI WinRSConsole panel tải + InventoryForm link. Spec 0014.
+
 ## 2026-07-07 — 0013-menu-tooltips.patch
 **WHY:** menu sidebar khó hiểu với người không chuyên IT — cần giải thích "cần tạo gì / ý nghĩa".
 **WHAT:** App.vue computed navTooltips (mô tả tiếng Việt mỗi menu) + bọc 2 vòng render nav bằng
