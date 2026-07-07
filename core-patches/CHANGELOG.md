@@ -3,6 +3,13 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-07 — 0016-enroll-1click.patch
+**WHY:** enrollment 1-click — bỏ copy cert thủ công; máy đích tự nạp cert + tự thêm vào inventory.
+**WHAT:** quickwin_enroll_token.go (token HMAC stateless key=CookieHash TTL30' + GetEnrollToken authed +
+EnrollWinRS public nhận cert→lưu certs dir+thêm host inventory, lọc traversal/size); enroll.go chèn
+server+token vào script; winrs-enroll.ps1 block tự POST cert; router +enroll-token(authed)+/enroll/winrs(public);
+UI nút "Enroll 1-click". Spec 0016.
+
 ## 2026-07-07 — 0015-i18n-quickwin-ui.patch
 **WHY:** UI QuickWin hardcode tiếng Việt trên giao diện English → lệch ngôn ngữ (tooltip, WinRS Console…).
 **WHAT:** en.js +key (tooltip* menu, winrs* console/enroll, localRepo*, loading); App.vue navTooltips→$t;

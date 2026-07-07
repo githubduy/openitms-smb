@@ -1,0 +1,444 @@
+# PATCH: 0016-enroll-1click
+# WHY: Enrollment 1-click — bỏ bước copy cert thủ công. Máy đích chạy script tự nạp cert lên server
+#      + tự thêm host vào inventory. Giảm ma sát cho người dùng SMB không chuyên IT.
+# WHAT: quickwin_enroll_token.go MỚI — token HMAC-SHA256 stateless (key=CookieHash, TTL 30') +
+#       GetEnrollToken (authed) + EnrollWinRS (public, auth bằng token) lưu cert vào certs dir +
+#       thêm host vào inventory WinRS (tạo nếu chưa có), lọc path-traversal + giới hạn kích thước cert.
+#       quickwin_enroll.go: GetEnrollScript chèn ?server=&token= vào script (placeholder). winrs-enroll.ps1:
+#       block tự POST cert lên /api/enroll/winrs (tolerate self-signed). router.go +2 route (enroll-token
+#       authed, /enroll/winrs public). UI WinRSConsole: nút "Enroll 1-click" (en.js i18n).
+# SPEC: docs/L2-specs/core-patches/0016-enroll-1click.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/quickwin_enroll.go b/api/projects/quickwin_enroll.go
+index bc9b554..c6f6908 100644
+--- a/api/projects/quickwin_enroll.go
++++ b/api/projects/quickwin_enroll.go
+@@ -33,6 +33,11 @@ func GetEnrollScript(w http.ResponseWriter, r *http.Request) {
+ 		return
+ 	}
+ 
++	// 1-click enrollment (PATCH 0016): nếu có ?server=&token= thì chèn vào script để tự upload cert.
++	server := r.URL.Query().Get("server")
++	token := r.URL.Query().Get("token")
++	content = enrollScriptInject(content, server, token)
++
+ 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+ 	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
+ 	w.Header().Set("X-Content-Type-Options", "nosniff")
+diff --git a/api/projects/quickwin_enroll_token.go b/api/projects/quickwin_enroll_token.go
+new file mode 100644
+index 0000000..1189213
+--- /dev/null
++++ b/api/projects/quickwin_enroll_token.go
+@@ -0,0 +1,215 @@
++// QUICKWIN PATCH 0016 — enrollment 1-click: token ký HMAC + endpoint nhận cert từ máy đích.
++// Luồng: UI tạo enroll-token (ngắn hạn) → tải script nhúng token+server URL → chạy trên máy
++// Windows → script POST cert lên /api/enroll/winrs (auth bằng token) → server lưu cert vào
++// certs dir + thêm host vào inventory WinRS của project. Không cần copy cert thủ công.
++// Token STATELESS (HMAC-SHA256, key = Config.CookieHash) → không cần lưu, tự hết hạn.
++// Spec: docs/L2-specs/core-patches/0016-enroll-1click.md
++package projects
++
++import (
++	"crypto/hmac"
++	"crypto/sha256"
++	"encoding/base64"
++	"fmt"
++	"net/http"
++	"os"
++	"path/filepath"
++	"strings"
++	"time"
++
++	"github.com/semaphoreui/semaphore/api/helpers"
++	"github.com/semaphoreui/semaphore/db"
++	"github.com/semaphoreui/semaphore/util"
++)
++
++const enrollTokenTTL = 30 * time.Minute
++const maxCertBytes = 64 * 1024
++
++// Placeholder trong script enroll để 0014 handler chèn server URL + token khi tải 1-click.
++const enrollServerPlaceholder = "@@OPENITMS_SERVER@@"
++const enrollTokenPlaceholder = "@@ENROLL_TOKEN@@"
++
++func enrollHMACKey() ([]byte, error) {
++	if util.Config == nil || util.Config.CookieHash == "" {
++		return nil, fmt.Errorf("server chưa cấu hình cookie_hash — không ký được enroll token")
++	}
++	k, err := base64.StdEncoding.DecodeString(util.Config.CookieHash)
++	if err != nil || len(k) == 0 {
++		return nil, fmt.Errorf("cookie_hash không hợp lệ")
++	}
++	return k, nil
++}
++
++// signEnrollToken tạo token "projectID:exp.base64(hmac)" ký bằng cookie_hash.
++func signEnrollToken(projectID int, exp int64) (string, error) {
++	key, err := enrollHMACKey()
++	if err != nil {
++		return "", err
++	}
++	msg := fmt.Sprintf("%d:%d", projectID, exp)
++	mac := hmac.New(sha256.New, key)
++	mac.Write([]byte(msg))
++	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
++	return base64.RawURLEncoding.EncodeToString([]byte(msg)) + "." + sig, nil
++}
++
++// verifyEnrollToken kiểm tra chữ ký + hạn, trả projectID.
++func verifyEnrollToken(token string) (int, error) {
++	parts := strings.SplitN(token, ".", 2)
++	if len(parts) != 2 {
++		return 0, fmt.Errorf("token sai định dạng")
++	}
++	msgBytes, err := base64.RawURLEncoding.DecodeString(parts[0])
++	if err != nil {
++		return 0, fmt.Errorf("token sai")
++	}
++	key, err := enrollHMACKey()
++	if err != nil {
++		return 0, err
++	}
++	mac := hmac.New(sha256.New, key)
++	mac.Write(msgBytes)
++	want := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
++	if !hmac.Equal([]byte(want), []byte(parts[1])) {
++		return 0, fmt.Errorf("token không hợp lệ (chữ ký sai)")
++	}
++	var projectID int
++	var exp int64
++	if _, err := fmt.Sscanf(string(msgBytes), "%d:%d", &projectID, &exp); err != nil {
++		return 0, fmt.Errorf("token sai nội dung")
++	}
++	if time.Now().Unix() > exp {
++		return 0, fmt.Errorf("token đã hết hạn")
++	}
++	return projectID, nil
++}
++
++// GetEnrollToken (authed) trả token enrollment ngắn hạn cho project.
++func GetEnrollToken(w http.ResponseWriter, r *http.Request) {
++	project := helpers.GetFromContext(r, "project").(db.Project)
++	exp := time.Now().Add(enrollTokenTTL).Unix()
++	token, err := signEnrollToken(project.ID, exp)
++	if err != nil {
++		helpers.WriteJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
++		return
++	}
++	helpers.WriteJSON(w, http.StatusOK, map[string]any{
++		"token":      token,
++		"expires_at": exp,
++	})
++}
++
++type enrollWinRSRequest struct {
++	Token   string `json:"token"`
++	Host    string `json:"host"`
++	Name    string `json:"name"`
++	CertPEM string `json:"cert_pem"`
++}
++
++// safeCertName lọc tên file cert: chỉ chữ/số/dấu chấm/gạch, tránh path traversal.
++func safeCertName(s string) string {
++	s = strings.TrimSpace(s)
++	var b strings.Builder
++	for _, c := range s {
++		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
++			c == '.' || c == '-' || c == '_' {
++			b.WriteRune(c)
++		}
++	}
++	out := b.String()
++	out = strings.ReplaceAll(out, "..", ".")     // triệt tiêu mọi chuỗi ".." (dù đã bỏ dấu / \)
++	out = strings.TrimLeft(out, ".-_")           // bỏ ký tự đầu gây tên file lạ / file ẩn
++	return out
++}
++
++// EnrollWinRS (public, auth bằng token) nhận cert từ máy đích → lưu certs dir + thêm host
++// vào inventory WinRS của project.
++func EnrollWinRS(w http.ResponseWriter, r *http.Request) {
++	var req enrollWinRSRequest
++	if !helpers.Bind(w, r, &req) {
++		return
++	}
++
++	projectID, err := verifyEnrollToken(req.Token)
++	if err != nil {
++		helpers.WriteJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
++		return
++	}
++
++	req.Host = strings.TrimSpace(req.Host)
++	if req.Host == "" {
++		helpers.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "thiếu host"})
++		return
++	}
++	if len(req.CertPEM) == 0 || len(req.CertPEM) > maxCertBytes ||
++		!strings.Contains(req.CertPEM, "-----BEGIN") {
++		helpers.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "cert_pem không hợp lệ"})
++		return
++	}
++
++	name := safeCertName(req.Name)
++	if name == "" {
++		name = safeCertName(req.Host)
++	}
++	if name == "" {
++		name = "endpoint"
++	}
++	if !strings.HasSuffix(name, ".pem") {
++		name += ".pem"
++	}
++
++	dir := winrsCertsDir()
++	if err := os.MkdirAll(dir, 0755); err != nil {
++		helpers.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "không tạo được certs dir"})
++		return
++	}
++	if err := os.WriteFile(filepath.Join(dir, name), []byte(req.CertPEM), 0600); err != nil {
++		helpers.WriteJSON(w, http.StatusInternalServerError, map[string]string{"error": "không lưu được cert"})
++		return
++	}
++
++	// Thêm host vào inventory WinRS của project (tạo mới nếu chưa có).
++	store := helpers.Store(r)
++	line := fmt.Sprintf("%s cert=%s", req.Host, name)
++	invs, err := store.GetInventories(projectID, db.RetrieveQueryParams{}, []db.InventoryType{db.InventoryWinRS})
++	if err == nil && len(invs) > 0 {
++		inv := invs[0]
++		if !strings.Contains(inv.Inventory, req.Host+" ") && !hasHostLine(inv.Inventory, req.Host) {
++			if inv.Inventory != "" && !strings.HasSuffix(inv.Inventory, "\n") {
++				inv.Inventory += "\n"
++			}
++			inv.Inventory += line + "\n"
++			_ = store.UpdateInventory(inv)
++		}
++	} else {
++		_, _ = store.CreateInventory(db.Inventory{
++			Name:      "WinRS Endpoints",
++			ProjectID: projectID,
++			Type:      db.InventoryWinRS,
++			Inventory: line + "\n",
++		})
++	}
++
++	helpers.WriteJSON(w, http.StatusOK, map[string]any{
++		"ok":        true,
++		"cert_file": name,
++		"host":      req.Host,
++	})
++}
++
++func hasHostLine(inventory, host string) bool {
++	for _, ln := range strings.Split(inventory, "\n") {
++		f := strings.Fields(strings.TrimSpace(ln))
++		if len(f) > 0 && f[0] == host {
++			return true
++		}
++	}
++	return false
++}
++
++// enrollScriptInject thay placeholder server/token vào script tải về (dùng bởi 0014 handler).
++func enrollScriptInject(content, server, token string) string {
++	content = strings.ReplaceAll(content, enrollServerPlaceholder, server)
++	content = strings.ReplaceAll(content, enrollTokenPlaceholder, token)
++	return content
++}
+diff --git a/api/projects/scripts/winrs-enroll.ps1 b/api/projects/scripts/winrs-enroll.ps1
+index c6f339e..f2beaf8 100644
+--- a/api/projects/scripts/winrs-enroll.ps1
++++ b/api/projects/scripts/winrs-enroll.ps1
+@@ -29,6 +29,11 @@ param(
+ 
+ $ErrorActionPreference = "Stop"
+ 
++# 1-click enrollment: khi tải script từ nút "Enroll 1-click", OpenITMS chèn 2 giá trị này.
++# Nếu tải script thường (không token), 2 dòng giữ nguyên placeholder → bỏ qua tự upload.
++$OpenITMSServer = "@@OPENITMS_SERVER@@"
++$EnrollToken    = "@@ENROLL_TOKEN@@"
++
+ function Fail($msg) { Write-Host "LỖI: $msg" -ForegroundColor Red; exit 1 }
+ 
+ # 0. Kiểm tra quyền Administrator
+@@ -100,15 +105,42 @@ Remove-Item $pfxPath, $tmpCer -ErrorAction SilentlyContinue
+ $ips = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+         Where-Object { $_.IPAddress -notlike '169.*' -and $_.IPAddress -ne '127.0.0.1' } |
+         Select-Object -ExpandProperty IPAddress) -join ', '
++$primaryIp = ($ips.Split(',')[0]).Trim()
++
++# ---- 1-click: tự nạp cert lên OpenITMS nếu có server + token ----
++$autoUploaded = $false
++if ($OpenITMSServer -and $OpenITMSServer -notmatch '@@' -and $EnrollToken -and $EnrollToken -notmatch '@@') {
++  Write-Host "==> Tự nạp cert lên OpenITMS ($OpenITMSServer)" -ForegroundColor Cyan
++  try {
++    # Chấp nhận cert self-signed của OpenITMS trên LAN (chỉ cho lần gọi này).
++    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
++    try { [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 } catch {}
++    $body = @{ token = $EnrollToken; host = $primaryIp; name = "$($env:COMPUTERNAME).pem"; cert_pem = $pem } | ConvertTo-Json
++    $resp = Invoke-RestMethod -Method Post -Uri "$OpenITMSServer/api/enroll/winrs" `
++              -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec 30
++    if ($resp.ok) {
++      Write-Host "    ✓ Đã nạp cert + thêm host $primaryIp vào inventory. XONG (1-click)!" -ForegroundColor Green
++      $autoUploaded = $true
++    } else {
++      Write-Host "    Server trả lỗi: $($resp.error)" -ForegroundColor Yellow
++    }
++  } catch {
++    Write-Host "    Không tự nạp được ($($_.Exception.Message)) — dùng cách thủ công bên dưới." -ForegroundColor Yellow
++  } finally {
++    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $null
++  }
++}
+ 
+ Write-Host ""
+ Write-Host "================= HOÀN TẤT =================" -ForegroundColor Green
+ Write-Host "File chứng chỉ (PEM): $OutFile"
+ Write-Host "IP máy này         : $ips"
+-Write-Host ""
+-Write-Host "BƯỚC TIẾP THEO trên OpenITMS:" -ForegroundColor Yellow
+-Write-Host "  1. Copy file PEM ở trên vào thư mục 'certs/' của máy chủ OpenITMS."
+-Write-Host "  2. Inventory > New Inventory > WinRS Endpoints, thêm dòng:"
+-Write-Host "         $($ips.Split(',')[0].Trim()) cert=$(Split-Path $OutFile -Leaf)"
+-Write-Host "  3. Xong — chạy WinRS Console / tác vụ xuống máy này."
++if (-not $autoUploaded) {
++  Write-Host ""
++  Write-Host "BƯỚC TIẾP THEO trên OpenITMS (nạp cert thủ công):" -ForegroundColor Yellow
++  Write-Host "  1. Copy file PEM ở trên vào thư mục 'certs/' của máy chủ OpenITMS."
++  Write-Host "  2. Inventory > New Inventory > WinRS Endpoints, thêm dòng:"
++  Write-Host "         $primaryIp cert=$(Split-Path $OutFile -Leaf)"
++  Write-Host "  3. Xong — chạy WinRS Console / tác vụ xuống máy này."
++}
+ Write-Host "==========================================="
+diff --git a/api/router.go b/api/router.go
+index a6a5792..50223d3 100644
+--- a/api/router.go
++++ b/api/router.go
+@@ -155,6 +155,9 @@ func Route(
+ 	publicAPIRouter.HandleFunc("/auth/oidc/{provider}/redirect", oidcRedirect).Methods("GET")
+ 	publicAPIRouter.HandleFunc("/auth/oidc/{provider}/redirect/{redirect_path:.*}", oidcRedirect).Methods("GET")
+ 
++	// QUICKWIN PATCH 0016 — máy đích tự nạp cert lên (auth bằng enroll token trong body, không cần session)
++	publicAPIRouter.HandleFunc("/enroll/winrs", projects.EnrollWinRS).Methods("POST")
++
+ 	internalAPI := publicAPIRouter.PathPrefix("/internal").Subrouter()
+ 	internalAPI.HandleFunc("/runners", runners.RegisterRunner).Methods("POST")
+ 
+@@ -318,6 +321,9 @@ func Route(
+ 	// QUICKWIN PATCH 0014 — tải script chuẩn bị endpoint (winrs|ssh)
+ 	projectUserAPI.Path("/endpoint/enroll-script/{kind}").HandlerFunc(projects.GetEnrollScript).Methods("GET", "HEAD")
+ 
++	// QUICKWIN PATCH 0016 — enrollment 1-click: cấp token (authed) để nhúng vào script tải về
++	projectUserAPI.Path("/winrs/enroll-token").HandlerFunc(projects.GetEnrollToken).Methods("GET", "HEAD")
++
+ 	projectUserAPI.Path("/inventory").HandlerFunc(projects.GetInventory).Methods("GET", "HEAD")
+ 	projectUserAPI.Path("/inventory").HandlerFunc(projects.AddInventory).Methods("POST")
+ 
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index f664f04..572585c 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -40,6 +40,13 @@ export default {
+   winrsDownloadScriptTail: 'run it AS ADMIN on the target machine to create the certificate.',
+   localRepoLabel: 'Local repository (Gitea) of this project:',
+   openOnGitea: 'Open in Gitea',
++  enroll1click: 'Enroll this machine (1-click)',
++  enroll1clickHint: 'Generates a pre-configured script. Run it AS ADMINISTRATOR on the target '
++    + 'Windows machine — it enables WinRM, then uploads the certificate and adds the host to your '
++    + 'inventory automatically. No manual copying.',
++  enrollGenerating: 'Generating…',
++  enrollError: 'Could not generate the enrollment script',
++  enrollManualNote: 'Or download the plain scripts (manual: copy the certificate yourself):',
+ 
+   checkInterval: 'checkInterval',
+   newCommitCheckInterval: 'New commit check interval',
+diff --git a/web/src/views/project/WinRSConsole.vue b/web/src/views/project/WinRSConsole.vue
+index 0e037aa..d3dadf0 100644
+--- a/web/src/views/project/WinRSConsole.vue
++++ b/web/src/views/project/WinRSConsole.vue
+@@ -27,23 +27,45 @@
+             <p class="body-2 mb-3">
+               {{ $t('winrsEnrollHint') }}
+             </p>
++
++            <v-alert dense text color="success" class="mb-3">
++              <div class="d-flex align-center flex-wrap">
++                <div class="mr-4" style="flex: 1 1 300px;">
++                  <strong>{{ $t('enroll1click') }}</strong>
++                  <div class="caption">{{ $t('enroll1clickHint') }}</div>
++                </div>
++                <v-btn
++                  color="success"
++                  :loading="enrolling"
++                  @click="enroll1click"
++                >
++                  <v-icon left>mdi-rocket-launch</v-icon>
++                  {{ $t('enroll1click') }}
++                </v-btn>
++              </div>
++            </v-alert>
++
++            <p class="caption mb-2">{{ $t('enrollManualNote') }}</p>
+             <v-btn
++              small
++              outlined
+               color="primary"
+               class="mr-3 mb-2"
+               :href="`/api/project/${projectId}/endpoint/enroll-script/winrs`"
+               download
+             >
+-              <v-icon left>mdi-microsoft-windows</v-icon>
++              <v-icon left small>mdi-microsoft-windows</v-icon>
+               {{ $t('winrsScriptBtn') }}
+             </v-btn>
+             <v-btn
++              small
+               outlined
+               color="primary"
+               class="mb-2"
+               :href="`/api/project/${projectId}/endpoint/enroll-script/ssh`"
+               download
+             >
+-              <v-icon left>mdi-console-network</v-icon>
++              <v-icon left small>mdi-console-network</v-icon>
+               {{ $t('sshScriptBtn') }}
+             </v-btn>
+           </v-expansion-panel-content>
+@@ -167,6 +189,7 @@ export default {
+       certs: [],
+       certsLoaded: false,
+       running: false,
++      enrolling: false,
+       stdout: '',
+       stderr: '',
+       lastExit: null,
+@@ -189,6 +212,27 @@ export default {
+       EventBus.$emit('i-show-drawer');
+     },
+ 
++    async enroll1click() {
++      this.enrolling = true;
++      this.errorMsg = null;
++      try {
++        const { data } = await axios.get(`/api/project/${this.projectId}/winrs/enroll-token`);
++        const server = window.location.origin;
++        const url = `/api/project/${this.projectId}/endpoint/enroll-script/winrs`
++          + `?token=${encodeURIComponent(data.token)}&server=${encodeURIComponent(server)}`;
++        const a = document.createElement('a');
++        a.href = url;
++        a.download = 'openitms-winrs-enroll.ps1';
++        document.body.appendChild(a);
++        a.click();
++        a.remove();
++      } catch (e) {
++        this.errorMsg = e.response?.data?.error || this.$t('enrollError');
++      } finally {
++        this.enrolling = false;
++      }
++    },
++
+     async loadCerts() {
+       try {
+         const { data } = await axios.get(`/api/project/${this.projectId}/winrs/certs`);
