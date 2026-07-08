@@ -22,3 +22,4 @@
 0019-enroll-ps51-compat.patch
 0020-enroll-pem-pkcs1.patch
 0021-discovery-autoadd-schedule.patch
+0022-enroll-clientcert-negotiation.patch

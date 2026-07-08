@@ -1,0 +1,52 @@
+# PATCH: 0022-enroll-clientcert-negotiation
+# WHY: WinRS connect FAIL 401 dù cert đúng: (1) WinRM listener KHÔNG bật 'Negotiate Client Certificate'
+#      trên binding HTTP.sys → server không hỏi client cert → không map được → 401. (2) chạy enroll
+#      nhiều lần để lại nhiều cert CN=openitms gây nhiễu.
+# WHAT: winrs-enroll.ps1: (a) enable clientcertnegotiation trên binding 0.0.0.0:5986 (netsh http update,
+#       fallback delete+add) sau khi tạo listener; (b) dọn cert CN=<user> cũ ở 4 store + WSMan client
+#       cert mapping cũ trước khi tạo mới (idempotent). Đây là fix quyết định để cert-auth chạy.
+# SPEC: docs/L2-specs/core-patches/0022-enroll-clientcert-negotiation.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/scripts/winrs-enroll.ps1 b/api/projects/scripts/winrs-enroll.ps1
+index 7aa513f..d4a0c82 100644
+--- a/api/projects/scripts/winrs-enroll.ps1
++++ b/api/projects/scripts/winrs-enroll.ps1
+@@ -78,6 +78,16 @@ if (Get-LocalUser -Name $User -ErrorAction SilentlyContinue) {
+ Add-LocalGroupMember -Group "Administrators" -Member $User -ErrorAction SilentlyContinue
+ 
+ Write-Host "==> 2/5  Create certificate for '$User'" -ForegroundColor Cyan
++# Clean up certs + WinRM cert mappings from previous runs (avoid ambiguity -> 401).
++foreach ($store in "Cert:\CurrentUser\My", "Cert:\LocalMachine\My", "Cert:\LocalMachine\Root", "Cert:\LocalMachine\TrustedPeople") {
++  Get-ChildItem $store -ErrorAction SilentlyContinue |
++    Where-Object { $_.Subject -eq "CN=$User" } |
++    Remove-Item -Force -ErrorAction SilentlyContinue
++}
++Get-ChildItem WSMan:\localhost\ClientCertificate -ErrorAction SilentlyContinue |
++  Where-Object { ($_.Keys -join ';') -match [regex]::Escape("$User@localhost") } |
++  Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
++
+ $clientCert = New-SelfSignedCertificate `
+   -Type Custom -KeyUsage DigitalSignature -KeySpec Signature `
+   -Subject "CN=$User" `
+@@ -105,6 +115,20 @@ New-Item -Path WSMan:\localhost\ClientCertificate `
+   -Subject "$User@localhost" -URI * -Issuer $clientCert.Thumbprint `
+   -Credential (New-Object System.Management.Automation.PSCredential($User, $secure)) -Force | Out-Null
+ 
++# CRITICAL: the WinRM listener does NOT enable client-certificate negotiation on the HTTP.sys
++# SSL binding by default -> the server never REQUESTS the client cert during the TLS handshake
++# -> certificate auth fails with HTTP 401. Enable it explicitly.
++& netsh http update sslcert ipport=0.0.0.0:5986 clientcertnegotiation=enable | Out-Null
++if ($LASTEXITCODE -ne 0) {
++  # Fallback: delete + re-add the binding with the flag (keep same cert + appid).
++  $show = & netsh http show sslcert ipport=0.0.0.0:5986
++  $appid = ([regex]'Application ID\s*:\s*(\{[0-9a-fA-F\-]+\})').Match(($show -join "`n")).Groups[1].Value
++  if ($appid) {
++    & netsh http delete sslcert ipport=0.0.0.0:5986 | Out-Null
++    & netsh http add sslcert ipport=0.0.0.0:5986 certhash=$($serverCert.Thumbprint) appid="$appid" clientcertnegotiation=enable | Out-Null
++  }
++}
++
+ Write-Host "==> 5/5  Export PEM (certificate + key)" -ForegroundColor Cyan
+ # .NET Framework (Windows PowerShell 5.1) không có ExportPkcs8PrivateKey (.NET Core+).
+ # Tự encode PKCS#1 DER từ RSAParameters (Go tls.X509KeyPair đọc được "RSA PRIVATE KEY").

@@ -3,6 +3,12 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-08 — 0022-enroll-clientcert-negotiation.patch
+**WHY:** WinRS connect FAIL 401 dù cert đúng — WinRM listener KHÔNG bật "Negotiate Client Certificate"
+trên binding HTTP.sys → server không hỏi client cert → không map → 401. (Debug thật trên máy Windows.)
+**WHAT:** winrs-enroll.ps1: enable clientcertnegotiation trên 0.0.0.0:5986 (netsh update, fallback
+delete+add) + dọn cert/mapping CN=user cũ trước khi tạo (idempotent). Fix quyết định cho cert-auth. Spec 0022.
+
 ## 2026-07-08 — 0021-discovery-autoadd-schedule.patch
 **WHY:** Network Discovery nâng cấp — quét định kỳ, Add all/Add-per-client vào inventory, tự thêm máy WinRS-connect được.
 **WHAT:** quickwin_discovery.go +config(auto_scan/interval/auto_add_winrs) + addHostsToWinRSInventory +
