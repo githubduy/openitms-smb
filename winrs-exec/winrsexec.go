@@ -43,7 +43,8 @@ func Run(ctx context.Context, p Params) (*Result, error) {
 	endpoint := winrm.NewEndpoint(p.Host, port, true, true, nil, p.CertPEM, p.KeyPEM, dialTimeout)
 
 	params := winrm.DefaultParameters
-	params.TransportDecorator = func() winrm.Transporter { return &winrm.ClientAuthRequest{} }
+	// Transport cert-auth ÉP KHÔNG qua proxy (WinRM = LAN trực tiếp) — xem transport.go.
+	params.TransportDecorator = func() winrm.Transporter { return &noProxyCertTransport{} }
 
 	client, err := winrm.NewClientWithParameters(endpoint, "", "", params)
 	if err != nil {
