@@ -32,9 +32,12 @@ jobs:
           npm run build
 
       - name: Build dist (native, no Docker) — Linux + Windows
+        env:
+          OPENITMS_VERSION: ${{ github.ref_name }}   # quickwin-vX.Y.Z → strip prefix dưới
         run: |
+          export OPENITMS_VERSION="${OPENITMS_VERSION#quickwin-v}"   # tên gói khớp tag
           scripts/build-all.sh            # nhúng UI vừa build ở api/public (không placeholder)
-          installer/fetch-deps.sh || echo "fetch-deps: deps.lock chưa pin version → bundle core-only"
+          installer/fetch-deps.sh         # tải MariaDB/pwsh/Gitea (Linux + Windows) — verify sha256
           installer/package.sh            # → dist/openitms-smb-*-linux-amd64.tar.gz
           installer/package-windows.sh    # → dist/openitms-smb-*-windows-amd64.zip (cross-compile)
 

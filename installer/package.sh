@@ -43,10 +43,11 @@ cp "$ROOT"/{LICENSE,LICENSE-SEMAPHORE,NOTICE.md} "$STAGE/licenses/"
 echo "==> [6/6] MariaDB + pwsh + Gitea (bundled)"
 if [ -d "$ROOT/dist/deps/mariadb" ]; then cp -a "$ROOT/dist/deps/mariadb" "$STAGE/"; else echo "    MariaDB chưa fetch (installer/fetch-deps.sh) — bundle core-only"; fi
 if [ -d "$ROOT/dist/deps/pwsh" ]; then mkdir -p "$STAGE/bin/pwsh"; cp -a "$ROOT/dist/deps/pwsh/." "$STAGE/bin/pwsh/"; else echo "    pwsh chưa fetch — bundle core-only"; fi
-# Gitea: single binary → dist/deps/gitea/ (fetch-deps copy binary vào đó)
-if [ -d "$ROOT/dist/deps/gitea" ]; then
-  mkdir -p "$STAGE/gitea"; cp -a "$ROOT/dist/deps/gitea/." "$STAGE/gitea/"
-  chmod +x "$STAGE"/gitea/gitea* 2>/dev/null || true
+# Gitea: single binary trong dist/deps/gitea/ (tên tải về .dl) → đặt tên chuẩn 'gitea'
+GITEA_BIN="$(ls "$ROOT"/dist/deps/gitea/* 2>/dev/null | head -1)"
+if [ -n "$GITEA_BIN" ]; then
+  mkdir -p "$STAGE/gitea"; cp "$GITEA_BIN" "$STAGE/gitea/gitea"
+  chmod +x "$STAGE/gitea/gitea"
 else
   echo "    Gitea chưa fetch — bundle không có git server local"
 fi

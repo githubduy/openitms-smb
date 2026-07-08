@@ -51,9 +51,14 @@ cp "$ROOT"/{LICENSE,LICENSE-SEMAPHORE,NOTICE.md} "$STAGE/licenses/" 2>/dev/null 
   echo "    (go-licenses skip)"
 
 echo "==> [6/6] MariaDB + pwsh + Gitea (Windows, bundled nếu có)"
-if [ -d "$ROOT/dist/deps/mariadb-win" ]; then cp -a "$ROOT/dist/deps/mariadb-win" "$STAGE/mariadb"; else echo "    MariaDB Windows chưa fetch — bundle core-only"; fi
-if [ -d "$ROOT/dist/deps/pwsh-win" ]; then mkdir -p "$STAGE/bin/pwsh"; cp -a "$ROOT/dist/deps/pwsh-win/." "$STAGE/bin/pwsh/"; else echo "    pwsh Windows chưa fetch — bundle core-only"; fi
-if [ -f "$ROOT/dist/deps/gitea/gitea.exe" ]; then mkdir -p "$STAGE/gitea"; cp "$ROOT/dist/deps/gitea/gitea.exe" "$STAGE/gitea/"; else echo "    Gitea Windows chưa fetch — bundle không có git server local"; fi
+if [ -d "$ROOT/dist/deps/mariadb-win" ] && [ -d "$ROOT/dist/deps/mariadb-win/bin" ]; then
+  cp -a "$ROOT/dist/deps/mariadb-win" "$STAGE/mariadb"; echo "    MariaDB Windows: bundled"
+else echo "    MariaDB Windows chưa fetch — bundle core-only"; fi
+if [ -d "$ROOT/dist/deps/pwsh-win" ]; then mkdir -p "$STAGE/bin/pwsh"; cp -a "$ROOT/dist/deps/pwsh-win/." "$STAGE/bin/pwsh/"; fi
+# Gitea Windows: download là 1 file .exe (tên .dl) trong dist/deps/gitea-win/
+GITEA_WIN="$(ls "$ROOT"/dist/deps/gitea-win/* 2>/dev/null | head -1)"
+if [ -n "$GITEA_WIN" ]; then mkdir -p "$STAGE/gitea"; cp "$GITEA_WIN" "$STAGE/gitea/gitea.exe"; echo "    Gitea Windows: bundled"
+else echo "    Gitea Windows chưa fetch — bundle không có git server local"; fi
 
 echo "==> zip + checksum"
 ZIP="$ROOT/dist/openitms-smb-$VER-windows-amd64.zip"

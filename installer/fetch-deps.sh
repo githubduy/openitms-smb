@@ -25,7 +25,18 @@ extract_into() {  # file dest
   case "$f" in
     *.tar.gz|*.tgz) tar -C "$dest" --strip-components=1 -xzf "$f" ;;
     *.tar.xz)       tar -C "$dest" --strip-components=1 -xJf "$f" ;;
-    *.zip)          ( cd "$dest" && unzip -oq "$f" ) ;;
+    *.zip)
+      # strip 1 top-level dir nếu zip bọc trong 1 thư mục (vd mariadb-11.4.4-winx64/)
+      local tmp; tmp="$(mktemp -d)"
+      ( cd "$tmp" && unzip -oq "$f" )
+      local top; top=( "$tmp"/* )
+      if [ "${#top[@]}" -eq 1 ] && [ -d "${top[0]}" ]; then
+        cp -a "${top[0]}/." "$dest/"
+      else
+        cp -a "$tmp/." "$dest/"
+      fi
+      rm -rf "$tmp"
+      ;;
     *)              cp "$f" "$dest/" ;;
   esac
 }

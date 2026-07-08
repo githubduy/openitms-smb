@@ -9,3 +9,6 @@ mariadb|https://archive.mariadb.org/mariadb-11.4.4/bintar-linux-systemd-x86_64/m
 pwsh|https://github.com/PowerShell/PowerShell/releases/download/v7.4.6/powershell-7.4.6-linux-x64.tar.gz|6f6015203c47806c5cc444c19d8ed019695e610fbd948154264bf9ca8e157561|pwsh
 # Gitea (MIT, single binary — ADR-0005). Linux amd64; Windows .exe stage vào vendor/gitea.exe.
 gitea|https://dl.gitea.com/gitea/1.26.4/gitea-1.26.4-linux-amd64|0faa36d151918f8f7d6e0f3ae67597d1c338583d695add146ac393109d0fc44a|gitea
+# --- Windows bundle deps (package-windows.sh dùng; CI tải + verify sha) ---
+mariadb-win|https://archive.mariadb.org/mariadb-11.4.4/winx64-packages/mariadb-11.4.4-winx64.zip|ee15985d5d0f604fce817986a2749bb972e79e6f8647ae0e09d821a2fdcd6373|mariadb-win
+gitea-win|https://dl.gitea.com/gitea/1.26.4/gitea-1.26.4-windows-4.0-amd64.exe|7ce663c56143843f17b297f103d55c29913eb682998b91fec1e57d0921110917|gitea-win
