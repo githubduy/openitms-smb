@@ -1,0 +1,334 @@
+# PATCH: 0019-enroll-ps51-compat
+# WHY: Script enroll chạy trong PowerShell 7 (pwsh) FAIL: New-LocalUser (module LocalAccounts) +
+#      cmdlet cert/WSMan không tương thích PS7 (lỗi load TelemetryAPI). Chỉ chạy ổn trên Windows
+#      PowerShell 5.1. Ngoài ra tiếng Việt trong chuỗi làm PS5.1 (đọc UTF-8-no-BOM = ANSI) parse lỗi.
+# WHAT: winrs-enroll.ps1 + ssh-enroll.ps1: (1) thêm guard đầu script — nếu chạy PS>=6 thì tự relaunch
+#       bằng powershell.exe (Windows PowerShell 5.1) rồi exit; (2) chuyển TOÀN BỘ chuỗi/comment sang
+#       ASCII/English (bỏ dấu tiếng Việt + ký tự non-ASCII) để 5.1 parse sạch. Giữ nguyên logic
+#       + placeholder 1-click. go:embed không đổi tên file → build OK.
+# SPEC: docs/L2-specs/core-patches/0019-enroll-ps51-compat.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/scripts/ssh-enroll.ps1 b/api/projects/scripts/ssh-enroll.ps1
+index 7bcb185..2ce7e7b 100644
+--- a/api/projects/scripts/ssh-enroll.ps1
++++ b/api/projects/scripts/ssh-enroll.ps1
+@@ -1,45 +1,63 @@
+ # ============================================================================
+-#  OpenITMS — Chuẩn bị máy Windows để quản lý từ xa qua SSH (OpenSSH Server)
++#  OpenITMS - Prepare this Windows machine for remote management via SSH
++#  (OpenSSH Server)
+ # ============================================================================
+-#  Chạy TRÊN MÁY WINDOWS cần quản lý, trong PowerShell "Run as Administrator".
++#  Run this ON THE WINDOWS MACHINE you want to manage, in a
++#  "Run as Administrator" PowerShell window.
+ #
+-#  Nó sẽ:
+-#    1. Cài + bật OpenSSH Server (dịch vụ sshd, cổng 22).
+-#    2. Mở firewall cổng 22.
+-#    3. Đặt PowerShell làm shell mặc định của SSH (để chạy pwsh từ xa).
+-#    4. Thêm public key của OpenITMS vào authorized_keys (nếu bạn dán -PublicKey).
++#  What it does:
++#    1. Install + enable OpenSSH Server (sshd service, port 22).
++#    2. Open firewall for port 22.
++#    3. Set PowerShell as the default SSH shell (to run pwsh remotely).
++#    4. Add the OpenITMS public key to authorized_keys (if you pass -PublicKey).
+ #
+-#  SAU KHI CHẠY XONG:
+-#    - Nếu chưa dán key: copy public key của OpenITMS (Key Store) rồi chạy lại với
+-#        -PublicKey "ssh-ed25519 AAAA... openitms"
+-#    - Vào OpenITMS > Key Store: thêm private key tương ứng (loại SSH).
+-#    - Inventory (Ansible/SSH) hoặc template: dùng IP máy này + key đó.
++#  AFTER IT FINISHES:
++#    - If you did not pass a key: copy the OpenITMS public key (Key Store) and
++#      run again with -PublicKey "ssh-ed25519 AAAA... openitms"
++#    - In OpenITMS > Key Store: add the matching private key (SSH type).
+ #
+-#  ⚠️  Bật SSH server là thay đổi bảo mật hệ thống. Chỉ chạy trên máy nội bộ bạn quản trị.
++#  NOTE: enabling the SSH server changes security settings. Run only on an
++#        internal machine you administer.
++#
++#  Uses Windows capability/firewall cmdlets that require Windows PowerShell 5.1,
++#  so it re-launches itself under powershell.exe if started in PowerShell 7+.
+ # ============================================================================
+ 
+ [CmdletBinding()]
+ param(
+   [string]$PublicKey = "",
+-  [string]$SshUser = ""   # để trống = user đang chạy script (Administrators dùng administrators_authorized_keys)
++  [string]$SshUser = ""
+ )
+ 
++# --- Compatibility: re-run under Windows PowerShell 5.1 if started in PowerShell 7+ (Core).
++if ($PSVersionTable.PSVersion.Major -ge 6) {
++  $wps = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe"
++  if (Test-Path $wps) {
++    Write-Host "Switching to Windows PowerShell 5.1 (compatible modules)..." -ForegroundColor Yellow
++    & $wps -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath @PSBoundParameters
++    exit $LASTEXITCODE
++  }
++  Write-Host "ERROR: running PowerShell 7 and Windows PowerShell 5.1 was not found." -ForegroundColor Red
++  Write-Host "Run again with: powershell.exe -ExecutionPolicy Bypass -File .\openitms-ssh-enroll.ps1" -ForegroundColor Red
++  exit 1
++}
++
+ $ErrorActionPreference = "Stop"
+-function Fail($m){ Write-Host "LỖI: $m" -ForegroundColor Red; exit 1 }
++function Fail($m){ Write-Host "ERROR: $m" -ForegroundColor Red; exit 1 }
+ 
+ $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+ if (-not (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
+       [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+-  Fail "Hãy mở PowerShell bằng 'Run as Administrator' rồi chạy lại."
++  Fail "Please open PowerShell as 'Run as Administrator' and try again."
+ }
+ 
+-Write-Host "==> 1/4  Cài OpenSSH Server" -ForegroundColor Cyan
++Write-Host "==> 1/4  Install OpenSSH Server" -ForegroundColor Cyan
+ $cap = Get-WindowsCapability -Online -Name OpenSSH.Server* -ErrorAction SilentlyContinue
+ if ($cap -and $cap.State -ne 'Installed') {
+   Add-WindowsCapability -Online -Name $cap.Name | Out-Null
+ }
+ 
+-Write-Host "==> 2/4  Bật dịch vụ sshd + firewall" -ForegroundColor Cyan
++Write-Host "==> 2/4  Enable sshd service + firewall" -ForegroundColor Cyan
+ Set-Service -Name sshd -StartupType Automatic
+ Start-Service sshd
+ if (-not (Get-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -ErrorAction SilentlyContinue)) {
+@@ -47,20 +65,20 @@ if (-not (Get-NetFirewallRule -Name "OpenSSH-Server-In-TCP" -ErrorAction Silentl
+     -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 | Out-Null
+ }
+ 
+-Write-Host "==> 3/4  Đặt PowerShell làm shell mặc định của SSH" -ForegroundColor Cyan
++Write-Host "==> 3/4  Set PowerShell as the default SSH shell" -ForegroundColor Cyan
+ $pwsh = (Get-Command powershell.exe).Source
+ New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" -Name DefaultShell `
+   -Value $pwsh -PropertyType String -Force | Out-Null
+ 
+-Write-Host "==> 4/4  Cấu hình authorized_keys" -ForegroundColor Cyan
++Write-Host "==> 4/4  Configure authorized_keys" -ForegroundColor Cyan
+ if ([string]::IsNullOrWhiteSpace($PublicKey)) {
+-  Write-Host "    (bỏ qua — chưa cung cấp -PublicKey)" -ForegroundColor Yellow
++  Write-Host "    (skipped - no -PublicKey provided)" -ForegroundColor Yellow
+ } else {
+   $admins = "$env:ProgramData\ssh\administrators_authorized_keys"
+   Add-Content -Path $admins -Value $PublicKey -Encoding ascii
+-  # Quyền chuẩn cho administrators_authorized_keys
++  # Correct permissions for administrators_authorized_keys
+   icacls $admins /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F" | Out-Null
+-  Write-Host "    Đã thêm key vào $admins"
++  Write-Host "    Added key to $admins"
+ }
+ 
+ $ips = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+@@ -68,14 +86,14 @@ $ips = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+         Select-Object -ExpandProperty IPAddress) -join ', '
+ 
+ Write-Host ""
+-Write-Host "================= HOÀN TẤT =================" -ForegroundColor Green
+-Write-Host "SSH server (sshd) đang chạy, cổng 22."
+-Write-Host "IP máy này: $ips"
++Write-Host "================= DONE =================" -ForegroundColor Green
++Write-Host "SSH server (sshd) is running on port 22."
++Write-Host "This machine IP: $ips"
+ Write-Host ""
+ if ([string]::IsNullOrWhiteSpace($PublicKey)) {
+-  Write-Host "CÒN LẠI: chạy lại với public key của OpenITMS:" -ForegroundColor Yellow
++  Write-Host "REMAINING: run again with the OpenITMS public key:" -ForegroundColor Yellow
+   Write-Host '  .\openitms-ssh-enroll.ps1 -PublicKey "ssh-ed25519 AAAA... openitms"'
+ } else {
+-  Write-Host "BƯỚC TIẾP THEO: trên OpenITMS thêm private key (Key Store) + dùng IP máy này." -ForegroundColor Yellow
++  Write-Host "NEXT: in OpenITMS add the private key (Key Store) + use this machine IP." -ForegroundColor Yellow
+ }
+-Write-Host "==========================================="
++Write-Host "======================================="
+diff --git a/api/projects/scripts/winrs-enroll.ps1 b/api/projects/scripts/winrs-enroll.ps1
+index f2beaf8..337a014 100644
+--- a/api/projects/scripts/winrs-enroll.ps1
++++ b/api/projects/scripts/winrs-enroll.ps1
+@@ -1,23 +1,26 @@
+ # ============================================================================
+-#  OpenITMS — Chuẩn bị máy Windows để quản lý từ xa qua WinRS (WinRM + chứng chỉ)
++#  OpenITMS - Prepare this Windows machine for remote management via WinRS
++#  (WinRM over HTTPS + certificate auth)
+ # ============================================================================
+-#  Chạy script này TRÊN MÁY WINDOWS bạn muốn quản lý, trong cửa sổ
+-#  PowerShell "Run as Administrator".
++#  Run this script ON THE WINDOWS MACHINE you want to manage, in a
++#  "Run as Administrator" PowerShell window.
+ #
+-#  Nó sẽ:
+-#    1. Tạo 1 tài khoản cục bộ để OpenITMS đăng nhập (mặc định 'openitms').
+-#    2. Tạo chứng chỉ (certificate) cho tài khoản đó.
+-#    3. Bật WinRM qua HTTPS (cổng 5986) + cho phép đăng nhập bằng chứng chỉ.
+-#    4. Xuất ra 1 file .pem (chứng chỉ + khóa) để bạn tải LÊN máy chủ OpenITMS.
++#  What it does:
++#    1. Create a local account for OpenITMS to log in as (default 'openitms').
++#    2. Create a certificate for that account.
++#    3. Enable WinRM over HTTPS (port 5986) + allow certificate login.
++#    4. Export a .pem file (cert + key) to upload to the OpenITMS server.
+ #
+-#  SAU KHI CHẠY XONG:
+-#    - Copy file PEM (đường dẫn in ở cuối) vào thư mục 'certs/' của máy chủ OpenITMS.
+-#    - Vào OpenITMS > Inventory > tạo "WinRS Endpoints", thêm dòng:
+-#          <IP-máy-này> cert=<tên-file.pem>
+-#    - Xong! Có thể chạy tác vụ / WinRS Console xuống máy này.
++#  AFTER IT FINISHES:
++#    - Copy the PEM file (path printed at the end) into the OpenITMS 'certs/' folder.
++#    - In OpenITMS > Inventory > create "WinRS Endpoints", add a line:
++#          <this-machine-ip> cert=<file.pem>
+ #
+-#  ⚠️  Script thay đổi cấu hình bảo mật (WinRM listener, cert auth). Chỉ chạy trên
+-#      máy trong mạng nội bộ mà bạn có quyền quản trị.
++#  NOTE: this script changes security settings (WinRM listener, cert auth).
++#        Run it only on an internal machine you administer.
++#
++#  Uses Windows account/cert/WinRM cmdlets that require Windows PowerShell 5.1,
++#  so it re-launches itself under powershell.exe if started in PowerShell 7+.
+ # ============================================================================
+ 
+ [CmdletBinding()]
+@@ -27,40 +30,54 @@ param(
+   [string]$OutFile = "$env:USERPROFILE\Desktop\openitms-$($env:COMPUTERNAME).pem"
+ )
+ 
++# --- Compatibility: New-LocalUser / PKI / WSMan cmdlets do not work in PowerShell 7 (Core).
++#     Re-run under Windows PowerShell 5.1 which supports them natively.
++if ($PSVersionTable.PSVersion.Major -ge 6) {
++  $wps = "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe"
++  if (Test-Path $wps) {
++    Write-Host "Switching to Windows PowerShell 5.1 (compatible modules)..." -ForegroundColor Yellow
++    & $wps -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath @PSBoundParameters
++    exit $LASTEXITCODE
++  }
++  Write-Host "ERROR: running PowerShell 7 and Windows PowerShell 5.1 was not found." -ForegroundColor Red
++  Write-Host "Run again with: powershell.exe -ExecutionPolicy Bypass -File .\openitms-winrs-enroll.ps1" -ForegroundColor Red
++  exit 1
++}
++
+ $ErrorActionPreference = "Stop"
+ 
+-# 1-click enrollment: khi tải script từ nút "Enroll 1-click", OpenITMS chèn 2 giá trị này.
+-# Nếu tải script thường (không token), 2 dòng giữ nguyên placeholder → bỏ qua tự upload.
++# 1-click enrollment: when downloaded from the "Enroll 1-click" button, OpenITMS injects these.
++# For a plain download (no token) they keep the placeholder -> auto-upload is skipped.
+ $OpenITMSServer = "@@OPENITMS_SERVER@@"
+ $EnrollToken    = "@@ENROLL_TOKEN@@"
+ 
+-function Fail($msg) { Write-Host "LỖI: $msg" -ForegroundColor Red; exit 1 }
++function Fail($msg) { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
+ 
+-# 0. Kiểm tra quyền Administrator
++# 0. Require Administrator
+ $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+ if (-not (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
+       [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+-  Fail "Hãy mở PowerShell bằng 'Run as Administrator' rồi chạy lại."
++  Fail "Please open PowerShell as 'Run as Administrator' and try again."
+ }
+ 
+ if ([string]::IsNullOrWhiteSpace($Password)) {
+-  # Sinh mật khẩu ngẫu nhiên mạnh (tài khoản chỉ dùng nội bộ cho cert-auth)
++  # Generate a strong random password (account is only used internally for cert-auth)
+   $bytes = New-Object 'System.Byte[]' 18
+   [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+   $Password = ([Convert]::ToBase64String($bytes) -replace '[^A-Za-z0-9]','') + "Aa1!"
+ }
+ $secure = ConvertTo-SecureString $Password -AsPlainText -Force
+ 
+-Write-Host "==> 1/5  Tạo tài khoản cục bộ '$User'" -ForegroundColor Cyan
++Write-Host "==> 1/5  Create local account '$User'" -ForegroundColor Cyan
+ if (Get-LocalUser -Name $User -ErrorAction SilentlyContinue) {
+   Set-LocalUser -Name $User -Password $secure
+ } else {
+   New-LocalUser -Name $User -Password $secure -FullName "OpenITMS Agent" `
+-    -Description "Tài khoản OpenITMS quản lý từ xa" -PasswordNeverExpires | Out-Null
++    -Description "OpenITMS remote management" -PasswordNeverExpires | Out-Null
+ }
+ Add-LocalGroupMember -Group "Administrators" -Member $User -ErrorAction SilentlyContinue
+ 
+-Write-Host "==> 2/5  Tạo chứng chỉ cho '$User'" -ForegroundColor Cyan
++Write-Host "==> 2/5  Create certificate for '$User'" -ForegroundColor Cyan
+ $clientCert = New-SelfSignedCertificate `
+   -Type Custom -KeyUsage DigitalSignature -KeySpec Signature `
+   -Subject "CN=$User" `
+@@ -70,13 +87,13 @@ $clientCert = New-SelfSignedCertificate `
+ $serverCert = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME, "localhost" `
+   -CertStoreLocation "Cert:\LocalMachine\My"
+ 
+-Write-Host "==> 3/5  Tin cậy chứng chỉ (Root + TrustedPeople)" -ForegroundColor Cyan
++Write-Host "==> 3/5  Trust the certificate (Root + TrustedPeople)" -ForegroundColor Cyan
+ $tmpCer = Join-Path $env:TEMP "openitms-client.cer"
+ Export-Certificate -Cert $clientCert -FilePath $tmpCer | Out-Null
+ Import-Certificate -FilePath $tmpCer -CertStoreLocation "Cert:\LocalMachine\Root" | Out-Null
+ Import-Certificate -FilePath $tmpCer -CertStoreLocation "Cert:\LocalMachine\TrustedPeople" | Out-Null
+ 
+-Write-Host "==> 4/5  Bật WinRM HTTPS (5986) + đăng nhập bằng chứng chỉ" -ForegroundColor Cyan
++Write-Host "==> 4/5  Enable WinRM HTTPS (5986) + certificate login" -ForegroundColor Cyan
+ if ((Get-Service WinRM).Status -ne 'Running') { Start-Service WinRM }
+ Remove-WSManInstance winrm/config/Listener -SelectorSet @{Address="*";Transport="HTTPS"} -ErrorAction SilentlyContinue
+ New-WSManInstance winrm/config/Listener -SelectorSet @{Address="*";Transport="HTTPS"} `
+@@ -88,7 +105,7 @@ New-Item -Path WSMan:\localhost\ClientCertificate `
+   -Subject "$User@localhost" -URI * -Issuer $clientCert.Thumbprint `
+   -Credential (New-Object System.Management.Automation.PSCredential($User, $secure)) -Force | Out-Null
+ 
+-Write-Host "==> 5/5  Xuất file PEM (chứng chỉ + khóa)" -ForegroundColor Cyan
++Write-Host "==> 5/5  Export PEM (certificate + key)" -ForegroundColor Cyan
+ $pfxPath = Join-Path $env:TEMP "openitms-client.pfx"
+ $pfxPass = ConvertTo-SecureString "pfx" -AsPlainText -Force
+ Export-PfxCertificate -Cert $clientCert -FilePath $pfxPath -Password $pfxPass | Out-Null
+@@ -107,40 +124,40 @@ $ips = (Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+         Select-Object -ExpandProperty IPAddress) -join ', '
+ $primaryIp = ($ips.Split(',')[0]).Trim()
+ 
+-# ---- 1-click: tự nạp cert lên OpenITMS nếu có server + token ----
++# ---- 1-click: auto-upload the cert to OpenITMS if server + token are set ----
+ $autoUploaded = $false
+ if ($OpenITMSServer -and $OpenITMSServer -notmatch '@@' -and $EnrollToken -and $EnrollToken -notmatch '@@') {
+-  Write-Host "==> Tự nạp cert lên OpenITMS ($OpenITMSServer)" -ForegroundColor Cyan
++  Write-Host "==> Uploading cert to OpenITMS ($OpenITMSServer)" -ForegroundColor Cyan
+   try {
+-    # Chấp nhận cert self-signed của OpenITMS trên LAN (chỉ cho lần gọi này).
++    # Accept OpenITMS self-signed cert on the LAN (this call only).
+     [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+     try { [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 } catch {}
+     $body = @{ token = $EnrollToken; host = $primaryIp; name = "$($env:COMPUTERNAME).pem"; cert_pem = $pem } | ConvertTo-Json
+     $resp = Invoke-RestMethod -Method Post -Uri "$OpenITMSServer/api/enroll/winrs" `
+               -ContentType 'application/json; charset=utf-8' -Body $body -TimeoutSec 30
+     if ($resp.ok) {
+-      Write-Host "    ✓ Đã nạp cert + thêm host $primaryIp vào inventory. XONG (1-click)!" -ForegroundColor Green
++      Write-Host "    OK: cert uploaded + host $primaryIp added to inventory. DONE (1-click)!" -ForegroundColor Green
+       $autoUploaded = $true
+     } else {
+-      Write-Host "    Server trả lỗi: $($resp.error)" -ForegroundColor Yellow
++      Write-Host "    Server error: $($resp.error)" -ForegroundColor Yellow
+     }
+   } catch {
+-    Write-Host "    Không tự nạp được ($($_.Exception.Message)) — dùng cách thủ công bên dưới." -ForegroundColor Yellow
++    Write-Host "    Auto-upload failed ($($_.Exception.Message)) - use the manual steps below." -ForegroundColor Yellow
+   } finally {
+     [System.Net.ServicePointManager]::ServerCertificateValidationCallback = $null
+   }
+ }
+ 
+ Write-Host ""
+-Write-Host "================= HOÀN TẤT =================" -ForegroundColor Green
+-Write-Host "File chứng chỉ (PEM): $OutFile"
+-Write-Host "IP máy này         : $ips"
++Write-Host "================= DONE =================" -ForegroundColor Green
++Write-Host "Certificate file (PEM): $OutFile"
++Write-Host "This machine IP       : $ips"
+ if (-not $autoUploaded) {
+   Write-Host ""
+-  Write-Host "BƯỚC TIẾP THEO trên OpenITMS (nạp cert thủ công):" -ForegroundColor Yellow
+-  Write-Host "  1. Copy file PEM ở trên vào thư mục 'certs/' của máy chủ OpenITMS."
+-  Write-Host "  2. Inventory > New Inventory > WinRS Endpoints, thêm dòng:"
++  Write-Host "NEXT STEPS in OpenITMS (manual cert upload):" -ForegroundColor Yellow
++  Write-Host "  1. Copy the PEM file above into the OpenITMS 'certs/' folder."
++  Write-Host "  2. Inventory > New Inventory > WinRS Endpoints, add a line:"
+   Write-Host "         $primaryIp cert=$(Split-Path $OutFile -Leaf)"
+-  Write-Host "  3. Xong — chạy WinRS Console / tác vụ xuống máy này."
++  Write-Host "  3. Done - run WinRS Console / tasks against this machine."
+ }
+-Write-Host "==========================================="
++Write-Host "======================================="

@@ -3,6 +3,12 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-08 — 0019-enroll-ps51-compat.patch
+**WHY:** script enroll FAIL trong PowerShell 7 (New-LocalUser/cert/WSMan không tương thích — lỗi
+TelemetryAPI); + tiếng Việt trong chuỗi làm PS5.1 parse lỗi encoding.
+**WHAT:** winrs-enroll.ps1 + ssh-enroll.ps1: guard tự relaunch bằng Windows PowerShell 5.1 khi chạy
+PS>=6; chuyển toàn bộ chuỗi/comment sang ASCII/English. Giữ logic + placeholder 1-click. Spec 0019.
+
 ## 2026-07-08 — 0018-network-discovery.patch
 **WHY:** autodiscovery subnet — quét dãy mạng tìm IP online + phân loại; default mỗi project có 192.168.0.0/16.
 **WHAT:** quickwin_discovery.go (scanner TCP-probe bounded + deadline; phân loại managed[inventory
