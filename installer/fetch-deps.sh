@@ -67,7 +67,9 @@ while IFS='|' read -r name url sha dest; do
   # (2) DOWNLOAD — fallback
   [ -n "$url" ] || { echo "WARN: [$name] không có local copy + không có URL → bỏ qua (bundle thiếu $name)"; continue; }
   echo "==> [$name] tải: $url"
-  f="/tmp/$name.dl"
+  # Giữ ĐUÔI file (basename URL) để extract_into nhận đúng loại (.tar.gz/.zip). Dùng .dl mất đuôi
+  # → case fallthrough → copy archive thô KHÔNG giải nén (bug bundle v0.1.0/0.1.1).
+  f="/tmp/dep-$name-$(basename "$url")"
   curl -fsSL -o "$f" "$url" || { echo "WARN: tải $name fail (mạng?) → bỏ qua"; continue; }
   verify_sha "$f" "$sha" || { echo "ERROR: checksum LỆCH $name — DỪNG (nghi supply-chain)"; exit 1; }
   extract_into "$f" "$OUT/$dest"; rm -f "$f"; echo "    → $OUT/$dest"
