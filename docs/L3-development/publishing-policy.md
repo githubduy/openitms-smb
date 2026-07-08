@@ -37,7 +37,10 @@ git user.name/user.email**) KHÔNG được chứa từ khóa nhận diện cá 
 ## Branch & tag
 - `main` protected: PR + ≥1 human review + CI xanh; cấm force-push.
 - AI chỉ push `ai/*`; người: `feat/* fix/* docs/* chore/*`. Squash-merge PR của AI.
-- Tag release `quickwin-v*` ký số, CHỈ maintainer (hoặc CI sau approve) tạo — tag = trigger release.
+- Tag release `quickwin-v*` = trigger release (CI build + GitHub Release).
+  - **Minor / pre-release** (`quickwin-v0.*` hoặc có hậu tố `-rc`/`-beta`/`-alpha`): **AI ĐƯỢC tạo**
+    (uỷ quyền maintainer 2026-07-08). CI đánh dấu `prerelease: true`. Tag annotate (không cần ký GPG).
+  - **Stable** (`quickwin-v1.0.0`+ không hậu tố): **CHỈ maintainer** tạo, tag **ký số** (GPG).
 - Maintainer bật 2FA; admin repo ≥2 và tối thiểu hóa.
 
 ## Checklist trước mọi release

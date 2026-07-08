@@ -48,6 +48,8 @@ jobs:
       - name: GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # 0.x hoặc có hậu tố -rc/-beta/-alpha => pre-release (AI được tạo). Stable => maintainer.
+          prerelease: ${{ startsWith(github.ref_name, 'quickwin-v0.') || contains(github.ref_name, '-') }}
           body_path: notes.md
           files: |
             dist/*.tar.gz
