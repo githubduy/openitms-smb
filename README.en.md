@@ -56,19 +56,19 @@ prints the access URL. Requirements: 64-bit Linux with `systemd`. No internet re
 Open **PowerShell as Administrator** (right-click → *Run as administrator*):
 
 ```powershell
-# 1. Extract the package and enter the folder
-cd openitms-smb-<version>-windows
+# 1. Extract the package (.zip) and enter the folder
+cd openitms-smb-<version>-windows-amd64
 
 # 2. Allow scripts + install (single command)
 Set-ExecutionPolicy -Scope Process Bypass -Force
-.\installer\windows\install.ps1
+.\install.ps1
 ```
 
 The installer initializes the database, creates the admin account, sets up the local git server, and
 registers OpenITMS to run at startup. It prints the access URL when done. Requirements: 64-bit
 Windows 10/11 or Windows Server.
 
-- Uninstall: `.\installer\windows\uninstall.ps1` (add `-PurgeData` to also delete data)
+- Uninstall: `.\uninstall.ps1` (add `-PurgeData` to also delete data)
 - Status: `Get-Service OpenITMS-DB` and `Get-ScheduledTask OpenITMS*`
 
 ---

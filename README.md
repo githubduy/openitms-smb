@@ -56,19 +56,19 @@ Xong. Trình cài đặt tự lo mọi thứ (database, service, admin, git serv
 Mở **PowerShell với quyền Administrator** (chuột phải → *Run as administrator*):
 
 ```powershell
-# 1. Giải nén bản cài, vào thư mục vừa giải nén
-cd openitms-smb-<phiên-bản>-windows
+# 1. Giải nén bản cài (.zip), vào thư mục vừa giải nén
+cd openitms-smb-<phiên-bản>-windows-amd64
 
 # 2. Cho phép chạy script + cài (1 lệnh)
 Set-ExecutionPolicy -Scope Process Bypass -Force
-.\installer\windows\install.ps1
+.\install.ps1
 ```
 
 Trình cài đặt tự khởi tạo database, tạo tài khoản quản trị, dựng git server nội bộ (Gitea), và
 đăng ký chạy nền lúc khởi động máy. Cuối màn hình in ra địa chỉ truy cập. Yêu cầu: Windows 10/11
 hoặc Windows Server 64-bit.
 
-- Gỡ cài: `.\installer\windows\uninstall.ps1` (thêm `-PurgeData` để xoá cả dữ liệu)
+- Gỡ cài: `.\uninstall.ps1` (thêm `-PurgeData` để xoá cả dữ liệu)
 - Trạng thái: `Get-Service OpenITMS-DB` và `Get-ScheduledTask OpenITMS*`
 
 ---
