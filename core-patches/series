@@ -20,3 +20,4 @@
 0017-winrs-history.patch
 0018-network-discovery.patch
 0019-enroll-ps51-compat.patch
+0020-enroll-pem-pkcs1.patch

@@ -3,6 +3,12 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-08 — 0020-enroll-pem-pkcs1.patch
+**WHY:** winrs-enroll.ps1 (chạy PS 5.1 do relaunch 0019) FAIL export key — ExportPkcs8PrivateKey là
+API .NET Core, .NET Framework 4.x không có ("does not contain GetRSAPrivateKey").
+**WHAT:** tự encode PKCS#1 DER từ RSAParameters (Enc-Len/Int/Seq + ConvertTo-Pkcs1B64) → PEM
+"RSA PRIVATE KEY". Verify: PS 5.1 export OK + Go tls.X509KeyPair parse OK. Spec 0020.
+
 ## 2026-07-08 — 0019-enroll-ps51-compat.patch
 **WHY:** script enroll FAIL trong PowerShell 7 (New-LocalUser/cert/WSMan không tương thích — lỗi
 TelemetryAPI); + tiếng Việt trong chuỗi làm PS5.1 parse lỗi encoding.

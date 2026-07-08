@@ -1,0 +1,56 @@
+# PATCH: 0020-enroll-pem-pkcs1
+# WHY: winrs-enroll.ps1 chạy dưới Windows PowerShell 5.1 (do relaunch 0019) FAIL bước export key:
+#      GetRSAPrivateKey().ExportPkcs8PrivateKey() là API .NET Core, .NET Framework 4.x (5.1) không có.
+#      (LocalAccounts cần 5.1, export key hiện đại cần 7 — nghịch lý; giữ ở 5.1 + tự encode key.)
+# WHAT: Thay export bằng tự encode PKCS#1 DER từ RSAParameters (Enc-Len/Int/Seq + ConvertTo-Pkcs1B64,
+#       dùng static RSACertificateExtensions::GetRSAPrivateKey → ExportParameters($true)); PEM đổi
+#       "PRIVATE KEY" → "RSA PRIVATE KEY" (PKCS#1). Go tls.X509KeyPair đọc được (đã verify E2E).
+# SPEC: docs/L2-specs/core-patches/0020-enroll-pem-pkcs1.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/scripts/winrs-enroll.ps1 b/api/projects/scripts/winrs-enroll.ps1
+index 337a014..7aa513f 100644
+--- a/api/projects/scripts/winrs-enroll.ps1
++++ b/api/projects/scripts/winrs-enroll.ps1
+@@ -106,6 +106,29 @@ New-Item -Path WSMan:\localhost\ClientCertificate `
+   -Credential (New-Object System.Management.Automation.PSCredential($User, $secure)) -Force | Out-Null
+ 
+ Write-Host "==> 5/5  Export PEM (certificate + key)" -ForegroundColor Cyan
++# .NET Framework (Windows PowerShell 5.1) không có ExportPkcs8PrivateKey (.NET Core+).
++# Tự encode PKCS#1 DER từ RSAParameters (Go tls.X509KeyPair đọc được "RSA PRIVATE KEY").
++function Enc-Len([int]$n) {
++  if ($n -lt 0x80) { return ,[byte]$n }
++  $b = @(); $x = $n
++  while ($x -gt 0) { $b = @([byte]($x -band 0xFF)) + $b; $x = $x -shr 8 }
++  return @([byte](0x80 -bor $b.Length)) + $b
++}
++function Enc-Int([byte[]]$v) {
++  $i = 0; while ($i -lt $v.Length - 1 -and $v[$i] -eq 0) { $i++ }
++  $v = $v[$i..($v.Length - 1)]
++  if ($v[0] -band 0x80) { $v = @([byte]0) + $v }
++  return @([byte]2) + (Enc-Len $v.Length) + $v
++}
++function Enc-Seq([byte[]]$c) { return @([byte]0x30) + (Enc-Len $c.Length) + $c }
++function ConvertTo-Pkcs1B64($cert) {
++  $rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($cert)
++  $p = $rsa.ExportParameters($true)
++  $body = (Enc-Int @([byte]0)) + (Enc-Int $p.Modulus) + (Enc-Int $p.Exponent) + (Enc-Int $p.D) +
++          (Enc-Int $p.P) + (Enc-Int $p.Q) + (Enc-Int $p.DP) + (Enc-Int $p.DQ) + (Enc-Int $p.InverseQ)
++  return [Convert]::ToBase64String([byte[]](Enc-Seq ([byte[]]$body)), 'InsertLineBreaks')
++}
++
+ $pfxPath = Join-Path $env:TEMP "openitms-client.pfx"
+ $pfxPass = ConvertTo-SecureString "pfx" -AsPlainText -Force
+ Export-PfxCertificate -Cert $clientCert -FilePath $pfxPath -Password $pfxPass | Out-Null
+@@ -113,9 +136,9 @@ $col = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2
+ $col.Import($pfxPath, "pfx", "Exportable")
+ $c = $col[0]
+ $certB64 = [Convert]::ToBase64String($c.RawData, 'InsertLineBreaks')
+-$keyB64  = [Convert]::ToBase64String($c.GetRSAPrivateKey().ExportPkcs8PrivateKey(), 'InsertLineBreaks')
++$keyB64  = ConvertTo-Pkcs1B64 $c
+ $pem = "-----BEGIN CERTIFICATE-----`n$certB64`n-----END CERTIFICATE-----`n" +
+-       "-----BEGIN PRIVATE KEY-----`n$keyB64`n-----END PRIVATE KEY-----`n"
++       "-----BEGIN RSA PRIVATE KEY-----`n$keyB64`n-----END RSA PRIVATE KEY-----`n"
+ Set-Content -Path $OutFile -Value $pem -Encoding ascii
+ Remove-Item $pfxPath, $tmpCer -ErrorAction SilentlyContinue
+ 

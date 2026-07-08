@@ -85,10 +85,16 @@ Export-PfxCertificate -Cert $clientCert -FilePath $pfxPath -Password $pfxPass | 
 $col = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2Collection
 $col.Import($pfxPath, "pfx", "Exportable")
 $c = $col[0]
+# PKCS#1 DER tự encode (ExportPkcs8PrivateKey là .NET Core, WinPS 5.1 không có) — xem patch 0020.
+function Enc-Len([int]$n){ if($n -lt 0x80){return ,[byte]$n}; $b=@(); $x=$n; while($x -gt 0){$b=@([byte]($x -band 0xFF))+$b; $x=$x -shr 8}; return @([byte](0x80 -bor $b.Length))+$b }
+function Enc-Int([byte[]]$v){ $i=0; while($i -lt $v.Length-1 -and $v[$i] -eq 0){$i++}; $v=$v[$i..($v.Length-1)]; if($v[0] -band 0x80){$v=@([byte]0)+$v}; return @([byte]2)+(Enc-Len $v.Length)+$v }
+function Enc-Seq([byte[]]$cc){ return @([byte]0x30)+(Enc-Len $cc.Length)+$cc }
+$rsa = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($c)
+$pp = $rsa.ExportParameters($true)
+$body = (Enc-Int @([byte]0))+(Enc-Int $pp.Modulus)+(Enc-Int $pp.Exponent)+(Enc-Int $pp.D)+(Enc-Int $pp.P)+(Enc-Int $pp.Q)+(Enc-Int $pp.DP)+(Enc-Int $pp.DQ)+(Enc-Int $pp.InverseQ)
 $certB64 = [Convert]::ToBase64String($c.RawData, 'InsertLineBreaks')
-$keyBytes = $c.GetRSAPrivateKey().ExportPkcs8PrivateKey()
-$keyB64 = [Convert]::ToBase64String($keyBytes, 'InsertLineBreaks')
-$pem = "-----BEGIN CERTIFICATE-----`n$certB64`n-----END CERTIFICATE-----`n-----BEGIN PRIVATE KEY-----`n$keyB64`n-----END PRIVATE KEY-----`n"
+$keyB64 = [Convert]::ToBase64String([byte[]](Enc-Seq ([byte[]]$body)), 'InsertLineBreaks')
+$pem = "-----BEGIN CERTIFICATE-----`n$certB64`n-----END CERTIFICATE-----`n-----BEGIN RSA PRIVATE KEY-----`n$keyB64`n-----END RSA PRIVATE KEY-----`n"
 Set-Content -Path (Join-Path $OutDir $PemName) -Value $pem -Encoding ascii
 
 Write-Host ""
