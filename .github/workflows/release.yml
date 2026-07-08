@@ -20,9 +20,20 @@ jobs:
       - run: scripts/setup-toolchain.sh
       - run: scripts/apply-patches.sh
 
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: Build frontend (web UI → api/public)
+        working-directory: upstream/web
+        env:
+          NODE_OPTIONS: --openssl-legacy-provider   # vue-cli-service trên node 17+
+        run: |
+          npm ci || npm install
+          npm run build
+
       - name: Build dist (native, no Docker) — Linux + Windows
         run: |
-          FULL_UI=1 scripts/build-all.sh || scripts/build-all.sh   # UI đầy đủ nếu node có
+          scripts/build-all.sh            # nhúng UI vừa build ở api/public (không placeholder)
           installer/fetch-deps.sh || echo "fetch-deps: deps.lock chưa pin version → bundle core-only"
           installer/package.sh            # → dist/openitms-smb-*-linux-amd64.tar.gz
           installer/package-windows.sh    # → dist/openitms-smb-*-windows-amd64.zip (cross-compile)
@@ -32,6 +43,8 @@ jobs:
           test -f LICENSE && test -f LICENSE-SEMAPHORE && test -f NOTICE.md
           go install github.com/google/go-licenses@latest
           (cd upstream && go-licenses report ./... > "$GITHUB_WORKSPACE/dist/THIRD_PARTY_LICENSES.md" 2>/dev/null || true)
+          # KHÔNG để file rỗng (GitHub từ chối upload asset 0 byte)
+          [ -s dist/THIRD_PARTY_LICENSES.md ] || printf '# Third-party licenses\nSee each module source repo (go-licenses report unavailable in this build).\n' > dist/THIRD_PARTY_LICENSES.md
           cp LICENSE LICENSE-SEMAPHORE NOTICE.md dist/ 2>/dev/null || true
 
       - name: Checksums + SBOM
