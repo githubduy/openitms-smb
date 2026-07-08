@@ -1,0 +1,423 @@
+# PATCH: 0021-discovery-autoadd-schedule
+# WHY: Nâng cấp Network Discovery: quét subnet ĐỊNH KỲ, nút "Add all" + "Add" từng client vào
+#      inventory, và TỰ ĐỘNG thêm máy nào scan ra + connect được bằng WinRS (cert mặc định).
+# WHAT: quickwin_discovery.go: config +auto_scan/scan_interval_min/auto_add_winrs; addHostsToWinRSInventory
+#       (thêm IP vào inventory WinRS, cert=default hoặc <ip>.pem); winrsReachable + autoAddReachable
+#       (test WinRS máy unmanaged → thêm nếu OK); handlers SetDiscoveryConfig + AddDiscoveryToInventory;
+#       RunDueScans (scheduler). router +2 route. cli/cmd/root.go: goroutine gọi RunDueScans mỗi 60s.
+#       UI NetworkDiscovery.vue: switch quét định kỳ + interval + auto-add, nút "Add all" + "Add"/device.
+# SPEC: docs/L2-specs/core-patches/0021-discovery-autoadd-schedule.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/quickwin_discovery.go b/api/projects/quickwin_discovery.go
+index 944c8c8..4ac9d07 100644
+--- a/api/projects/quickwin_discovery.go
++++ b/api/projects/quickwin_discovery.go
+@@ -56,10 +56,13 @@ type discoveryScan struct {
+ }
+ 
+ type discoveryConfig struct {
+-	Subnets    []string          `json:"subnets"`
+-	Exceptions []string          `json:"exceptions"`
+-	Notes      map[string]string `json:"notes,omitempty"`
+-	LastScan   *discoveryScan    `json:"last_scan,omitempty"`
++	Subnets      []string          `json:"subnets"`
++	Exceptions   []string          `json:"exceptions"`
++	Notes        map[string]string `json:"notes,omitempty"`
++	AutoScan     bool              `json:"auto_scan"`      // PATCH 0021 — quét định kỳ
++	ScanInterval int               `json:"scan_interval_min"` // phút (0 = tắt)
++	AutoAddWinRS bool              `json:"auto_add_winrs"` // tự thêm máy connect được WinRS
++	LastScan     *discoveryScan    `json:"last_scan,omitempty"`
+ }
+ 
+ func discoveryDir() string {
+@@ -102,9 +105,9 @@ func saveDiscovery(projectID int, cfg discoveryConfig) error {
+ }
+ 
+ // managedHosts trả set IP/host đã có trong inventory WinRS của project (đã "managed").
+-func managedHosts(r *http.Request, projectID int) map[string]bool {
++func managedHosts(store db.Store, projectID int) map[string]bool {
+ 	set := map[string]bool{}
+-	invs, err := helpers.Store(r).GetInventories(projectID, db.RetrieveQueryParams{}, []db.InventoryType{db.InventoryWinRS})
++	invs, err := store.GetInventories(projectID, db.RetrieveQueryParams{}, []db.InventoryType{db.InventoryWinRS})
+ 	if err != nil {
+ 		return set
+ 	}
+@@ -116,6 +119,56 @@ func managedHosts(r *http.Request, projectID int) map[string]bool {
+ 	return set
+ }
+ 
++// addHostsToWinRSInventory thêm danh sách IP vào inventory WinRS của project (tạo nếu chưa có).
++// cert = QUICKWIN_WINRS_DEFAULT_CERT nếu có, ngược lại "<ip>.pem" (placeholder tới khi enroll).
++func addHostsToWinRSInventory(store db.Store, projectID int, ips []string) int {
++	if len(ips) == 0 {
++		return 0
++	}
++	defCert := os.Getenv("QUICKWIN_WINRS_DEFAULT_CERT")
++	invs, _ := store.GetInventories(projectID, db.RetrieveQueryParams{}, []db.InventoryType{db.InventoryWinRS})
++
++	var inv db.Inventory
++	if len(invs) > 0 {
++		inv = invs[0]
++	} else {
++		inv = db.Inventory{Name: "WinRS Endpoints", ProjectID: projectID, Type: db.InventoryWinRS}
++	}
++
++	existing := map[string]bool{}
++	for _, h := range winrsexec.ParseHosts(inv.Inventory, "") {
++		existing[h.Addr] = true
++	}
++	added := 0
++	body := inv.Inventory
++	for _, ip := range ips {
++		ip = strings.TrimSpace(ip)
++		if ip == "" || existing[ip] {
++			continue
++		}
++		cert := defCert
++		if cert == "" {
++			cert = safeCertName(ip) + ".pem"
++		}
++		if body != "" && !strings.HasSuffix(body, "\n") {
++			body += "\n"
++		}
++		body += fmt.Sprintf("%s cert=%s\n", ip, cert)
++		existing[ip] = true
++		added++
++	}
++	if added == 0 {
++		return 0
++	}
++	inv.Inventory = body
++	if inv.ID == 0 {
++		_, _ = store.CreateInventory(inv)
++	} else {
++		_ = store.UpdateInventory(inv)
++	}
++	return added
++}
++
+ func contains(list []string, v string) bool {
+ 	for _, x := range list {
+ 		if x == v {
+@@ -247,6 +300,50 @@ func classify(scan *discoveryScan, cfg discoveryConfig, managed map[string]bool)
+ 	}
+ }
+ 
++// winrsReachable thử kết nối WinRS bằng cert mặc định (lệnh hostname). true nếu chạy được.
++func winrsReachable(ip string, certPEM []byte) bool {
++	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
++	defer cancel()
++	res, err := winrsexec.Run(ctx, winrsexec.Params{
++		Host: ip, CertPEM: certPEM, KeyPEM: certPEM, Command: "hostname", Timeout: 6 * time.Second,
++	})
++	return err == nil && res.ExitCode == 0
++}
++
++// autoAddReachable: với mỗi device unmanaged có cổng WinRS mở, thử connect bằng cert mặc định;
++// máy nào OK → thêm vào inventory + đánh dấu managed. Trả số máy đã thêm.
++func autoAddReachable(store db.Store, projectID int, scan *discoveryScan) int {
++	defCert := os.Getenv("QUICKWIN_WINRS_DEFAULT_CERT")
++	if defCert == "" {
++		return 0
++	}
++	certPEM, err := os.ReadFile(filepath.Join(winrsCertsDir(), defCert))
++	if err != nil {
++		return 0
++	}
++	var reach []string
++	for i := range scan.Devices {
++		d := &scan.Devices[i]
++		if d.Status != "unmanaged" {
++			continue
++		}
++		hasWinRS := false
++		for _, p := range d.Ports {
++			if p == 5985 || p == 5986 {
++				hasWinRS = true
++			}
++		}
++		if hasWinRS && winrsReachable(d.IP, certPEM) {
++			reach = append(reach, d.IP)
++			d.Status = "managed"
++		}
++	}
++	if len(reach) > 0 {
++		addHostsToWinRSInventory(store, projectID, reach)
++	}
++	return len(reach)
++}
++
+ // ---- HTTP handlers ----
+ 
+ // GetDiscovery trả cấu hình discovery (subnets, exceptions, lần quét gần nhất đã phân loại lại).
+@@ -254,7 +351,7 @@ func GetDiscovery(w http.ResponseWriter, r *http.Request) {
+ 	project := helpers.GetFromContext(r, "project").(db.Project)
+ 	cfg := loadDiscovery(project.ID)
+ 	if cfg.LastScan != nil {
+-		classify(cfg.LastScan, cfg, managedHosts(r, project.ID))
++		classify(cfg.LastScan, cfg, managedHosts(helpers.Store(r), project.ID))
+ 	}
+ 	helpers.WriteJSON(w, http.StatusOK, cfg)
+ }
+@@ -316,7 +413,11 @@ func ScanDiscovery(w http.ResponseWriter, r *http.Request) {
+ 		return
+ 	}
+ 	cfg := loadDiscovery(project.ID)
+-	classify(scan, cfg, managedHosts(r, project.ID))
++	store := helpers.Store(r)
++	classify(scan, cfg, managedHosts(store, project.ID))
++	if cfg.AutoAddWinRS {
++		autoAddReachable(store, project.ID, scan) // tự thêm máy WinRS connect được
++	}
+ 	cfg.LastScan = scan
+ 	_ = saveDiscovery(project.ID, cfg)
+ 	helpers.WriteJSON(w, http.StatusOK, scan)
+@@ -362,3 +463,67 @@ func SetDiscoveryDevice(w http.ResponseWriter, r *http.Request) {
+ 	_ = saveDiscovery(project.ID, cfg)
+ 	helpers.WriteJSON(w, http.StatusOK, cfg)
+ }
++
++type discoveryConfigReq struct {
++	AutoScan     bool `json:"auto_scan"`
++	ScanInterval int  `json:"scan_interval_min"`
++	AutoAddWinRS bool `json:"auto_add_winrs"`
++}
++
++// SetDiscoveryConfig lưu tuỳ chọn quét định kỳ + tự thêm WinRS.
++func SetDiscoveryConfig(w http.ResponseWriter, r *http.Request) {
++	project := helpers.GetFromContext(r, "project").(db.Project)
++	var req discoveryConfigReq
++	if !helpers.Bind(w, r, &req) {
++		return
++	}
++	cfg := loadDiscovery(project.ID)
++	cfg.AutoScan = req.AutoScan
++	cfg.ScanInterval = req.ScanInterval
++	cfg.AutoAddWinRS = req.AutoAddWinRS
++	_ = saveDiscovery(project.ID, cfg)
++	helpers.WriteJSON(w, http.StatusOK, cfg)
++}
++
++type addInvReq struct {
++	IPs []string `json:"ips"`
++}
++
++// AddDiscoveryToInventory thêm danh sách IP (hoặc tất cả unmanaged) vào inventory WinRS.
++func AddDiscoveryToInventory(w http.ResponseWriter, r *http.Request) {
++	project := helpers.GetFromContext(r, "project").(db.Project)
++	var req addInvReq
++	if !helpers.Bind(w, r, &req) {
++		return
++	}
++	added := addHostsToWinRSInventory(helpers.Store(r), project.ID, req.IPs)
++	helpers.WriteJSON(w, http.StatusOK, map[string]any{"added": added})
++}
++
++// RunDueScans (gọi từ scheduler cli/cmd) — quét định kỳ project nào bật auto_scan + tới hạn.
++func RunDueScans(store db.Store) {
++	projects, err := store.GetAllProjects()
++	if err != nil {
++		return
++	}
++	now := time.Now().Unix()
++	for _, p := range projects {
++		cfg := loadDiscovery(p.ID)
++		if !cfg.AutoScan || cfg.ScanInterval <= 0 || len(cfg.Subnets) == 0 {
++			continue
++		}
++		if cfg.LastScan != nil && now-cfg.LastScan.TS < int64(cfg.ScanInterval)*60 {
++			continue // chưa tới hạn
++		}
++		scan, serr := scanCIDR(cfg.Subnets[0]) // quét subnet đầu (định kỳ nên đặt /24)
++		if serr != nil {
++			continue
++		}
++		classify(scan, cfg, managedHosts(store, p.ID))
++		if cfg.AutoAddWinRS {
++			autoAddReachable(store, p.ID, scan)
++		}
++		cfg.LastScan = scan
++		_ = saveDiscovery(p.ID, cfg)
++	}
++}
+diff --git a/api/router.go b/api/router.go
+index 2c9962b..7baa907 100644
+--- a/api/router.go
++++ b/api/router.go
+@@ -339,6 +339,8 @@ func Route(
+ 	projectUserAPI.Path("/discovery/subnet/remove").HandlerFunc(projects.RemoveDiscoverySubnet).Methods("POST")
+ 	projectUserAPI.Path("/discovery/scan").HandlerFunc(projects.ScanDiscovery).Methods("POST")
+ 	projectUserAPI.Path("/discovery/device").HandlerFunc(projects.SetDiscoveryDevice).Methods("POST")
++	projectUserAPI.Path("/discovery/config").HandlerFunc(projects.SetDiscoveryConfig).Methods("POST")
++	projectUserAPI.Path("/discovery/add-to-inventory").HandlerFunc(projects.AddDiscoveryToInventory).Methods("POST")
+ 
+ 	projectUserAPI.Path("/environment").HandlerFunc(projects.GetEnvironment).Methods("GET", "HEAD")
+ 	projectUserAPI.Path("/environment").HandlerFunc(environmentController.AddEnvironment).Methods("POST")
+diff --git a/cli/cmd/root.go b/cli/cmd/root.go
+index d198583..55f685d 100644
+--- a/cli/cmd/root.go
++++ b/cli/cmd/root.go
+@@ -99,6 +99,14 @@ func runService() {
+ 
+ 	projects.SeedHostProjectIfEmpty(store, accessKeyService) // QUICKWIN PATCH 0011
+ 
++	// QUICKWIN PATCH 0021 — scheduler quét mạng định kỳ (project bật auto_scan).
++	go func() {
++		for {
++			time.Sleep(60 * time.Second)
++			projects.RunDueScans(store)
++		}
++	}()
++
+ 	secretStorageService := server.NewSecretStorageService(store, store, accessKeyService, encryptionService)
+ 	secretStorageSyncScheduler := server.NewSecretStorageSyncScheduler(store, secretStorageService)
+ 	environmentService := server.NewEnvironmentService(store, encryptionService)
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index b71662d..2f24ad9 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -38,6 +38,11 @@ export default {
+   statusUnmanaged: 'New',
+   statusGateway: 'Gateway',
+   statusException: 'Ignored',
++  discoveryAutoScan: 'Scan periodically',
++  discoveryIntervalMin: 'Every (min)',
++  discoveryAutoAdd: 'Auto-add WinRS-reachable',
++  discoveryAddAll: 'Add all to inventory',
++  discoveryAddClient: 'Add',
+ 
+   // QUICKWIN — WinRS Console + endpoint enrollment + local repo (i18n)
+   winrsConsoleTitle: 'WinRS Console',
+diff --git a/web/src/views/project/NetworkDiscovery.vue b/web/src/views/project/NetworkDiscovery.vue
+index 4e4ca24..5c9616c 100644
+--- a/web/src/views/project/NetworkDiscovery.vue
++++ b/web/src/views/project/NetworkDiscovery.vue
+@@ -80,6 +80,44 @@
+       <div v-if="rangeWarn" class="caption warning--text mt-1">{{ $t('discoveryLargeWarn') }}</div>
+       <div v-if="errorMsg" class="caption error--text mt-1">{{ errorMsg }}</div>
+ 
++      <!-- Options: periodic scan + auto-add + Add all -->
++      <v-row no-gutters align="center" class="mt-2">
++        <v-switch
++          v-model="autoScan"
++          @change="saveConfig"
++          :label="$t('discoveryAutoScan')"
++          dense hide-details
++          class="mr-4 mt-0 pt-0"
++        ></v-switch>
++        <v-text-field
++          v-if="autoScan"
++          v-model.number="scanInterval"
++          @change="saveConfig"
++          type="number"
++          :label="$t('discoveryIntervalMin')"
++          style="max-width: 130px;"
++          dense outlined hide-details
++          class="mr-4"
++        ></v-text-field>
++        <v-switch
++          v-model="autoAddWinRS"
++          @change="saveConfig"
++          :label="$t('discoveryAutoAdd')"
++          dense hide-details
++          class="mr-4 mt-0 pt-0"
++        ></v-switch>
++        <v-spacer></v-spacer>
++        <v-btn
++          small outlined color="success"
++          :loading="adding"
++          :disabled="adding || !unmanagedIps.length"
++          @click="addAll"
++        >
++          <v-icon left small>mdi-playlist-plus</v-icon>
++          {{ $t('discoveryAddAll') }} ({{ unmanagedIps.length }})
++        </v-btn>
++      </v-row>
++
+       <!-- Legend -->
+       <div class="mt-3 mb-2">
+         <v-chip x-small color="success" text-color="white" class="mr-1">
+@@ -117,6 +155,11 @@
+               <td class="caption">{{ (d.ports || []).join(', ') }}</td>
+               <td class="caption">{{ d.note }}</td>
+               <td class="text-right">
++                <v-btn
++                  v-if="d.status === 'unmanaged' || d.status === 'gateway'"
++                  x-small text color="success"
++                  @click="addToInventory([d.ip])"
++                >{{ $t('discoveryAddClient') }}</v-btn>
+                 <v-btn
+                   v-if="d.status !== 'exception'"
+                   x-small text
+@@ -154,9 +197,13 @@ export default {
+       newSubnet: '',
+       scanCidr: '',
+       scanning: false,
++      adding: false,
+       lastScan: null,
+       devices: [],
+       errorMsg: null,
++      autoScan: false,
++      scanInterval: 30,
++      autoAddWinRS: false,
+     };
+   },
+ 
+@@ -165,6 +212,11 @@ export default {
+       const m = /\/(\d+)$/.exec(this.scanCidr || '');
+       return m && Number(m[1]) < 23; // rộng hơn /23 (>512 host)
+     },
++    unmanagedIps() {
++      return this.devices
++        .filter((d) => d.status === 'unmanaged' || d.status === 'gateway')
++        .map((d) => d.ip);
++    },
+   },
+ 
+   async created() {
+@@ -184,6 +236,9 @@ export default {
+       this.subnets = cfg.subnets || [];
+       this.exceptions = cfg.exceptions || [];
+       this.notes = cfg.notes || {};
++      this.autoScan = !!cfg.auto_scan;
++      this.scanInterval = cfg.scan_interval_min || 30;
++      this.autoAddWinRS = !!cfg.auto_add_winrs;
+       if (cfg.last_scan) {
+         this.lastScan = cfg.last_scan;
+         this.devices = cfg.last_scan.devices || [];
+@@ -191,6 +246,34 @@ export default {
+       }
+     },
+ 
++    async saveConfig() {
++      try {
++        await axios.post(`/api/project/${this.projectId}/discovery/config`, {
++          auto_scan: this.autoScan,
++          scan_interval_min: Number(this.scanInterval) || 30,
++          auto_add_winrs: this.autoAddWinRS,
++        });
++      } catch (e) { this.errorMsg = e.response?.data?.error || e.message; }
++    },
++
++    async addToInventory(ips) {
++      if (!ips.length) return;
++      this.adding = true;
++      try {
++        await axios.post(`/api/project/${this.projectId}/discovery/add-to-inventory`, { ips });
++        // đánh dấu managed trong bảng ngay
++        ips.forEach((ip) => {
++          const d = this.devices.find((x) => x.ip === ip);
++          if (d) d.status = 'managed';
++        });
++      } catch (e) { this.errorMsg = e.response?.data?.error || e.message; }
++      this.adding = false;
++    },
++
++    addAll() {
++      this.addToInventory(this.unmanagedIps);
++    },
++
+     async load() {
+       try {
+         const { data } = await axios.get(`/api/project/${this.projectId}/discovery`);

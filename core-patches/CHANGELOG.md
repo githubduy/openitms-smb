@@ -3,6 +3,12 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-08 — 0021-discovery-autoadd-schedule.patch
+**WHY:** Network Discovery nâng cấp — quét định kỳ, Add all/Add-per-client vào inventory, tự thêm máy WinRS-connect được.
+**WHAT:** quickwin_discovery.go +config(auto_scan/interval/auto_add_winrs) + addHostsToWinRSInventory +
+winrsReachable/autoAddReachable + SetDiscoveryConfig/AddDiscoveryToInventory + RunDueScans; router +2 route;
+root.go goroutine scheduler 60s; UI switch định kỳ+interval+auto-add + nút "Add all"/"Add". Spec 0021.
+
 ## 2026-07-08 — 0020-enroll-pem-pkcs1.patch
 **WHY:** winrs-enroll.ps1 (chạy PS 5.1 do relaunch 0019) FAIL export key — ExportPkcs8PrivateKey là
 API .NET Core, .NET Framework 4.x không có ("does not contain GetRSAPrivateKey").
