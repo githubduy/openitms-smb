@@ -1,0 +1,364 @@
+# PATCH: 0026-inventory-extra-schedule
+# WHY: Mở rộng inventory: thu thập thêm services + scheduled tasks + patch level (hotfixes + os_build);
+#      và tự thu thập ĐỊNH KỲ (mặc định 4h/lần) cho mọi máy managed.
+# WHAT: collect-inventory.ps1 +services (Win32_Service) +tasks (Get-ScheduledTask) +hotfixes
+#       (Get-HotFix) +os_build. quickwin_winrs_inventory.go: config +collect_interval_min (default 240)
+#       + LastCollect; collectHostInventory (helper); RunDueInventoryCollect (scheduler). root.go goroutine
+#       5' gọi. UI: field interval + hiển thị services/tasks/hotfixes/os_build.
+# SPEC: docs/L2-specs/core-patches/0026-inventory-extra-schedule.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/quickwin_winrs_inventory.go b/api/projects/quickwin_winrs_inventory.go
+index 7cc3b71..7b52b1e 100644
+--- a/api/projects/quickwin_winrs_inventory.go
++++ b/api/projects/quickwin_winrs_inventory.go
+@@ -29,9 +29,20 @@ type winrsInvHost struct {
+ 	Data json.RawMessage `json:"data"`
+ }
+ 
++const defaultInvIntervalMin = 240 // 4h
++
+ type winrsInvStore struct {
+-	Enabled *bool                   `json:"enabled,omitempty"` // mặc định true
+-	Hosts   map[string]winrsInvHost `json:"hosts"`
++	Enabled     *bool                   `json:"enabled,omitempty"`           // mặc định true
++	IntervalMin int                     `json:"collect_interval_min"`        // định kỳ (phút); 0 = default 240
++	LastCollect int64                   `json:"last_collect,omitempty"`      // ts lần auto-collect gần nhất
++	Hosts       map[string]winrsInvHost `json:"hosts"`
++}
++
++func (s winrsInvStore) interval() int {
++	if s.IntervalMin <= 0 {
++		return defaultInvIntervalMin
++	}
++	return s.IntervalMin
+ }
+ 
+ func winrsInvDir() string {
+@@ -63,19 +74,89 @@ func saveWinrsInv(projectID int, s winrsInvStore) {
+ 	_ = os.WriteFile(winrsInvFile(projectID), b, 0600)
+ }
+ 
+-// GetWinRSInventory trả cấu hình (enabled) + inventory đã thu thập của project.
++// GetWinRSInventory trả cấu hình (enabled, interval) + inventory đã thu thập của project.
+ func GetWinRSInventory(w http.ResponseWriter, r *http.Request) {
+ 	project := helpers.GetFromContext(r, "project").(db.Project)
+ 	s := loadWinrsInv(project.ID)
+ 	enabled := s.Enabled == nil || *s.Enabled
+-	helpers.WriteJSON(w, http.StatusOK, map[string]any{"enabled": enabled, "hosts": s.Hosts})
++	helpers.WriteJSON(w, http.StatusOK, map[string]any{
++		"enabled": enabled, "collect_interval_min": s.interval(), "hosts": s.Hosts,
++	})
++}
++
++// collectHostInventory chạy script collect trên 1 host → JSON hợp lệ, hoặc lỗi.
++func collectHostInventory(host string, port int, certPEM, keyPEM []byte) (json.RawMessage, error) {
++	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
++	defer cancel()
++	res, err := winrsexec.Run(ctx, winrsexec.Params{
++		Host: host, Port: port, CertPEM: certPEM, KeyPEM: keyPEM,
++		Command: "powershell -EncodedCommand " + encodePowerShellConsole(collectInventoryScript),
++		Timeout: 100 * time.Second,
++	})
++	if err != nil {
++		return nil, fmt.Errorf("%s", winrsexec.Classify(err))
++	}
++	out := strings.TrimSpace(res.Stdout)
++	if !json.Valid([]byte(out)) {
++		return nil, fmt.Errorf("output không phải JSON hợp lệ")
++	}
++	return json.RawMessage(out), nil
++}
++
++// RunDueInventoryCollect (scheduler) — tự thu thập inventory mọi máy managed của project nào bật +
++// tới hạn (mặc định 4h). Đọc host+cert từ inventory WinRS.
++func RunDueInventoryCollect(store db.Store) {
++	projects, err := store.GetAllProjects()
++	if err != nil {
++		return
++	}
++	now := time.Now().Unix()
++	certDir := winrsCertsDir()
++	for _, p := range projects {
++		s := loadWinrsInv(p.ID)
++		if s.Enabled != nil && !*s.Enabled {
++			continue
++		}
++		if s.LastCollect > 0 && now-s.LastCollect < int64(s.interval())*60 {
++			continue // chưa tới hạn
++		}
++		invs, ierr := store.GetInventories(p.ID, db.RetrieveQueryParams{}, []db.InventoryType{db.InventoryWinRS})
++		if ierr != nil {
++			continue
++		}
++		for _, inv := range invs {
++			for _, h := range winrsexec.ParseHosts(inv.Inventory, "") {
++				if h.Cert == "" {
++					continue
++				}
++				certPEM, cerr := os.ReadFile(filepath.Join(certDir, h.Cert))
++				if cerr != nil {
++					continue
++				}
++				keyPEM := certPEM
++				if h.Key != "" {
++					if kp, kerr := os.ReadFile(filepath.Join(certDir, h.Key)); kerr == nil {
++						keyPEM = kp
++					}
++				}
++				data, derr := collectHostInventory(h.Addr, h.Port, certPEM, keyPEM)
++				if derr != nil {
++					continue // host offline / cert sai → bỏ qua
++				}
++				s.Hosts[h.Addr] = winrsInvHost{TS: now, Data: data}
++			}
++		}
++		s.LastCollect = now
++		saveWinrsInv(p.ID, s)
++	}
+ }
+ 
+ type winrsInvConfigReq struct {
+-	Enabled bool `json:"enabled"`
++	Enabled     bool `json:"enabled"`
++	IntervalMin int  `json:"collect_interval_min"`
+ }
+ 
+-// SetWinRSInventoryConfig bật/tắt thu thập inventory (mặc định bật).
++// SetWinRSInventoryConfig bật/tắt + đặt chu kỳ auto-collect (mặc định bật, 240 phút = 4h).
+ func SetWinRSInventoryConfig(w http.ResponseWriter, r *http.Request) {
+ 	project := helpers.GetFromContext(r, "project").(db.Project)
+ 	var req winrsInvConfigReq
+@@ -84,8 +165,11 @@ func SetWinRSInventoryConfig(w http.ResponseWriter, r *http.Request) {
+ 	}
+ 	s := loadWinrsInv(project.ID)
+ 	s.Enabled = &req.Enabled
++	if req.IntervalMin > 0 {
++		s.IntervalMin = req.IntervalMin
++	}
+ 	saveWinrsInv(project.ID, s)
+-	helpers.WriteJSON(w, http.StatusOK, map[string]any{"enabled": req.Enabled})
++	helpers.WriteJSON(w, http.StatusOK, map[string]any{"enabled": req.Enabled, "collect_interval_min": s.interval()})
+ }
+ 
+ type winrsInvCollectReq struct {
+@@ -126,35 +210,15 @@ func WinRSInventoryCollect(w http.ResponseWriter, r *http.Request) {
+ 		}
+ 	}
+ 
+-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+-	defer cancel()
+-	res, rerr := winrsexec.Run(ctx, winrsexec.Params{
+-		Host: req.Host, Port: req.Port, CertPEM: certPEM, KeyPEM: keyPEM,
+-		Command: "powershell -EncodedCommand " + encodePowerShellConsole(collectInventoryScript),
+-		Timeout: 90 * time.Second,
+-	})
+-	if rerr != nil {
+-		helpers.WriteJSON(w, http.StatusOK, map[string]any{"ok": false, "error": winrsexec.Classify(rerr)})
+-		return
+-	}
+-	out := strings.TrimSpace(res.Stdout)
+-	if !json.Valid([]byte(out)) {
+-		helpers.WriteJSON(w, http.StatusOK, map[string]any{
+-			"ok": false, "error": "output không phải JSON hợp lệ", "stderr": res.Stderr, "raw": firstN(out, 400),
+-		})
++	data, derr := collectHostInventory(req.Host, req.Port, certPEM, keyPEM)
++	if derr != nil {
++		helpers.WriteJSON(w, http.StatusOK, map[string]any{"ok": false, "error": derr.Error()})
+ 		return
+ 	}
+ 
+ 	s := loadWinrsInv(project.ID)
+-	s.Hosts[req.Host] = winrsInvHost{TS: time.Now().Unix(), Data: json.RawMessage(out)}
++	s.Hosts[req.Host] = winrsInvHost{TS: time.Now().Unix(), Data: data}
+ 	saveWinrsInv(project.ID, s)
+ 
+-	helpers.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "host": req.Host, "data": json.RawMessage(out)})
+-}
+-
+-func firstN(s string, n int) string {
+-	if len(s) > n {
+-		return s[:n]
+-	}
+-	return s
++	helpers.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "host": req.Host, "data": data})
+ }
+diff --git a/api/projects/scripts/collect-inventory.ps1 b/api/projects/scripts/collect-inventory.ps1
+index 3301787..1e3ddda 100644
+--- a/api/projects/scripts/collect-inventory.ps1
++++ b/api/projects/scripts/collect-inventory.ps1
+@@ -12,12 +12,26 @@ foreach ($k in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+ }
+ $sw = $sw | Sort-Object name -Unique
+ 
++# Services (Win32_Service: name/state/start mode).
++$svc = @(Get-CimInstance Win32_Service |
++         Select-Object @{n='name';e={$_.Name}}, @{n='state';e={$_.State}}, @{n='start';e={$_.StartMode}})
++
++# Scheduled tasks (Get-ScheduledTask có từ Win8/2012+; bỏ qua nếu không có).
++$tasks = @(Get-ScheduledTask -ErrorAction SilentlyContinue |
++           Select-Object @{n='name';e={$_.TaskName}}, @{n='path';e={$_.TaskPath}}, @{n='state';e={"$($_.State)"}})
++
++# Patch level: hotfixes đã cài (KB) + build OS.
++$hf = @(Get-HotFix -ErrorAction SilentlyContinue |
++        Select-Object @{n='id';e={$_.HotFixID}},
++                      @{n='installed';e={ if ($_.InstalledOn) { $_.InstalledOn.ToString('yyyy-MM-dd') } else { '' } }})
++
+ [ordered]@{
+   hostname   = $env:COMPUTERNAME
+   domain     = $cs.Domain
+   workgroup  = -not $cs.PartOfDomain
+   os         = $os.Caption
+   os_version = $os.Version
++  os_build   = $os.BuildNumber
+   ips        = @(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -ne '127.0.0.1' } |
+                  Select-Object -ExpandProperty IPAddress)
+   dns        = @((Get-DnsClientServerAddress -AddressFamily IPv4).ServerAddresses | Select-Object -Unique)
+@@ -25,5 +39,8 @@ $sw = $sw | Sort-Object name -Unique
+                  Where-Object { $_ -and $_ -ne '0.0.0.0' } | Select-Object -Unique)
+   users      = @(Get-LocalUser | Select-Object @{n='name';e={$_.Name}}, @{n='enabled';e={[bool]$_.Enabled}})
+   groups     = @(Get-LocalGroup | Select-Object -ExpandProperty Name)
++  services   = @($svc)
++  tasks      = @($tasks)
++  hotfixes   = @($hf)
+   software   = @($sw)
+ } | ConvertTo-Json -Depth 5 -Compress
+diff --git a/cli/cmd/root.go b/cli/cmd/root.go
+index 55f685d..a8be43e 100644
+--- a/cli/cmd/root.go
++++ b/cli/cmd/root.go
+@@ -107,6 +107,14 @@ func runService() {
+ 		}
+ 	}()
+ 
++	// QUICKWIN PATCH 0026 — scheduler thu thập inventory định kỳ (mặc định 4h, project bật).
++	go func() {
++		for {
++			time.Sleep(5 * time.Minute)
++			projects.RunDueInventoryCollect(store)
++		}
++	}()
++
+ 	secretStorageService := server.NewSecretStorageService(store, store, accessKeyService, encryptionService)
+ 	secretStorageSyncScheduler := server.NewSecretStorageSyncScheduler(store, secretStorageService)
+ 	environmentService := server.NewEnvironmentService(store, encryptionService)
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index 2312c7c..1c49495 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -77,11 +77,13 @@ export default {
+     + 'machines — that issues a new certificate and the old one stops working.',
+   invTitle: 'Inventory (managed machines)',
+   invEnabled: 'Enabled',
+-  invHint: 'Collect software, IP, DNS, route, hostname, users/groups and domain from a managed '
+-    + 'Windows host (runs a read-only script over WinRS).',
++  invHint: 'Collect software, services, scheduled tasks, patch level (hotfixes), IP, DNS, route, '
++    + 'hostname, users/groups and domain from a managed Windows host (read-only script over WinRS). '
++    + 'When enabled, all managed hosts are re-collected automatically on the interval below.',
+   invCollect: 'Collect (current host)',
+   invEmpty: 'No inventory collected yet. Set host + cert above, then Collect.',
+   invCollectedAt: 'Collected at',
++  invIntervalMin: 'Auto every (min)',
+   loading: 'Loading…',
+   winrsHostHint: 'Run pwsh directly on the Windows host via WinRM (certificate). Place the cert in '
+     + 'the runner\'s {certsDir} folder (or set {envVar}).',
+diff --git a/web/src/views/project/WinRSConsole.vue b/web/src/views/project/WinRSConsole.vue
+index 5974ef7..c412d84 100644
+--- a/web/src/views/project/WinRSConsole.vue
++++ b/web/src/views/project/WinRSConsole.vue
+@@ -176,6 +176,16 @@
+             dense hide-details
+             class="ml-4 mt-0 pt-0"
+           ></v-switch>
++          <v-text-field
++            v-if="invEnabled"
++            v-model.number="invInterval"
++            @change="saveInvConfig"
++            type="number"
++            :label="$t('invIntervalMin')"
++            style="max-width: 150px;"
++            dense outlined hide-details
++            class="ml-4"
++          ></v-text-field>
+           <v-spacer></v-spacer>
+           <v-btn
+             small color="primary" outlined
+@@ -210,7 +220,10 @@
+                   <td>Domain</td>
+                   <td>{{ h.data.domain }} ({{ netKind(h) }})</td>
+                 </tr>
+-                <tr><td>OS</td><td>{{ h.data.os }} {{ h.data.os_version }}</td></tr>
++                <tr>
++                  <td>OS</td>
++                  <td>{{ h.data.os }} {{ h.data.os_version }} (build {{ h.data.os_build }})</td>
++                </tr>
+                 <tr><td>IPs</td><td>{{ (h.data.ips || []).join(', ') }}</td></tr>
+                 <tr><td>DNS</td><td>{{ (h.data.dns || []).join(', ') }}</td></tr>
+                 <tr><td>Gateway</td><td>{{ (h.data.gateway || []).join(', ') }}</td></tr>
+@@ -222,6 +235,38 @@
+                   <td>Groups</td>
+                   <td class="caption">{{ (h.data.groups || []).join(', ') }}</td>
+                 </tr>
++                <tr>
++                  <td>Hotfixes ({{ (h.data.hotfixes || []).length }})</td>
++                  <td class="caption">
++                    <span v-for="(k, i) in h.data.hotfixes" :key="i" class="mr-2">
++                      {{ k.id }}<span class="grey--text"> {{ k.installed }}</span>
++                    </span>
++                  </td>
++                </tr>
++                <tr>
++                  <td>Services ({{ (h.data.services || []).length }})</td>
++                  <td>
++                    <div class="InvSoftware">
++                      <div v-for="(s, i) in h.data.services" :key="i">
++                        {{ s.name }}
++                        <span :class="s.state === 'Running' ? 'success--text' : 'grey--text'">
++                          {{ s.state }}</span>
++                        <span class="grey--text">· {{ s.start }}</span>
++                      </div>
++                    </div>
++                  </td>
++                </tr>
++                <tr>
++                  <td>Tasks ({{ (h.data.tasks || []).length }})</td>
++                  <td>
++                    <div class="InvSoftware">
++                      <div v-for="(t, i) in h.data.tasks" :key="i">
++                        <span class="grey--text">{{ t.path }}</span>{{ t.name }}
++                        <span class="grey--text">· {{ t.state }}</span>
++                      </div>
++                    </div>
++                  </td>
++                </tr>
+                 <tr>
+                   <td>Software ({{ (h.data.software || []).length }})</td>
+                   <td>
+@@ -356,6 +401,7 @@ export default {
+       history: [],
+       inventory: {},
+       invEnabled: true,
++      invInterval: 240,
+       invCollecting: false,
+       cmOptions: {
+         tabSize: 2,
+@@ -413,6 +459,7 @@ export default {
+       try {
+         const { data } = await axios.get(`/api/project/${this.projectId}/winrs/inventory`);
+         this.invEnabled = data.enabled !== false;
++        this.invInterval = data.collect_interval_min || 240;
+         this.inventory = data.hosts || {};
+       } catch (e) {
+         this.inventory = {};
+@@ -421,7 +468,10 @@ export default {
+ 
+     async saveInvConfig() {
+       try {
+-        await axios.post(`/api/project/${this.projectId}/winrs/inventory/config`, { enabled: this.invEnabled });
++        await axios.post(`/api/project/${this.projectId}/winrs/inventory/config`, {
++          enabled: this.invEnabled,
++          collect_interval_min: Number(this.invInterval) || 240,
++        });
+       } catch (e) { /* ignore */ }
+     },
+ 

@@ -3,6 +3,13 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-09 — 0026-inventory-extra-schedule.patch
+**WHY:** thu thập thêm services + scheduled tasks + patch level (hotfixes); auto-collect định kỳ 4h/lần.
+**WHAT:** collect-inventory.ps1 +services/tasks/hotfixes/os_build. quickwin_winrs_inventory.go: config
++collect_interval_min (default 240) + LastCollect; collectHostInventory helper; RunDueInventoryCollect
+(scheduler). root.go goroutine 5'. UI: field interval + hiển thị fields mới. Verify thật: services 288/
+tasks 249/hotfixes 4/build 22631. Spec 0026.
+
 ## 2026-07-09 — 0025-winrs-inventory.patch
 **WHY:** (A) cảnh báo rủi ro nếu .pem lộ (credential admin toàn fleet); (B) máy managed có tuỳ chọn
 (mặc định bật) thu thập inventory software/IP/DNS/route/hostname/user-group/domain.
