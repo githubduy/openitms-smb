@@ -3,6 +3,13 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-09 — 0028-inventory-export-detail.patch
+**WHY:** audit fleet cần CSV chi tiết (1 dòng/mục) thay vì chỉ đếm — để lọc/pivot trong Excel.
+**WHAT:** ExportWinRSInventory nhận `?detail=software|services|tasks|hotfixes` → CSV long-format
+(1 dòng/mục/host); struct `invDataFull` parse đủ trường; không có detail giữ bản tóm tắt.
+UI: nút CSV thành menu dropdown 5 lựa chọn (Summary/Software/Services/Tasks/Hotfixes) + method `invCsvUrl`.
+Verify thật: detail=software → 1 dòng/app (name+version); services có cột state/start/microsoft. Spec 0028.
+
 ## 2026-07-09 — 0027-inventory-filter-diff-export.patch
 **WHY:** inventory dễ audit: (A) lọc Microsoft khỏi service/task (checkbox hiện lại + chỉ hiện Running);
 (B) so sánh 2 lần quét (software mới/gỡ, service đổi state); (C) export CSV/JSON fleet.
