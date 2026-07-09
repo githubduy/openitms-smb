@@ -3,6 +3,13 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-09 — 0025-winrs-inventory.patch
+**WHY:** (A) cảnh báo rủi ro nếu .pem lộ (credential admin toàn fleet); (B) máy managed có tuỳ chọn
+(mặc định bật) thu thập inventory software/IP/DNS/route/hostname/user-group/domain.
+**WHAT:** collect-inventory.ps1 (CIM+registry+Net*→JSON gọn); quickwin_winrs_inventory.go (chạy qua
+winrsexec, parse, lưu; Get/SetConfig/Collect); router +3 route; UI WinRSConsole panel bảo mật .pem +
+section Inventory (toggle + Collect + hiển thị per host). Verify thật: collect 10.x → 142 apps. Spec 0025.
+
 ## 2026-07-09 — 0024-enroll-admin-domain.patch
 **WHY:** máy domain-joined: Add-LocalGroupMember resolve tên local user nhầm sang domain → fail thầm →
 openitms KHÔNG vào Administrators → WinRS AccessDenied (dù đã fix token filter). (Debug thật.)

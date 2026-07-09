@@ -1,0 +1,470 @@
+# PATCH: 0025-winrs-inventory
+# WHY: (A) Cần cảnh báo rõ rủi ro nếu file .pem (cert+key) bị lộ — nó là credential admin toàn fleet.
+#      (B) Máy đã managed nên có tuỳ chọn (mặc định BẬT) thu thập inventory: software/IP/DNS/route/
+#      hostname/user-group/domain.
+# WHAT: scripts/collect-inventory.ps1 MỚI (CIM+registry+Net* → 1 dòng JSON gọn). quickwin_winrs_inventory.go
+#       MỚI — chạy script qua winrsexec, parse JSON, lưu file (winrs-inventory dir); Get/SetConfig/Collect.
+#       router +3 route. UI WinRSConsole: panel cảnh báo bảo mật .pem (i18n) + section Inventory (toggle
+#       mặc định bật + nút Collect + hiển thị software/network/users/groups per host).
+# SPEC: docs/L2-specs/core-patches/0025-winrs-inventory.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/quickwin_winrs_inventory.go b/api/projects/quickwin_winrs_inventory.go
+new file mode 100644
+index 0000000..7cc3b71
+--- /dev/null
++++ b/api/projects/quickwin_winrs_inventory.go
+@@ -0,0 +1,160 @@
++// QUICKWIN PATCH 0025 — thu thập inventory máy Windows đã managed qua WinRS.
++// Chạy collect-inventory.ps1 (embed) trên host → parse JSON (software/IP/DNS/route/hostname/
++// user/group/domain) → lưu file (winrs-inventory dir). Tuỳ chọn bật/tắt (mặc định BẬT).
++// Spec: docs/L2-specs/core-patches/0025-winrs-inventory.md
++package projects
++
++import (
++	"context"
++	_ "embed"
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"os"
++	"path/filepath"
++	"strings"
++	"time"
++
++	"github.com/semaphoreui/semaphore/api/helpers"
++	"github.com/semaphoreui/semaphore/db"
++
++	"quickwin.dev/winrsexec"
++)
++
++//go:embed scripts/collect-inventory.ps1
++var collectInventoryScript string
++
++type winrsInvHost struct {
++	TS   int64           `json:"ts"`
++	Data json.RawMessage `json:"data"`
++}
++
++type winrsInvStore struct {
++	Enabled *bool                   `json:"enabled,omitempty"` // mặc định true
++	Hosts   map[string]winrsInvHost `json:"hosts"`
++}
++
++func winrsInvDir() string {
++	d := os.Getenv("QUICKWIN_DISCOVERY_DIR") // dùng chung dir dữ liệu runtime
++	if d == "" {
++		d = "discovery"
++	}
++	return d
++}
++
++func winrsInvFile(projectID int) string {
++	return filepath.Join(winrsInvDir(), fmt.Sprintf("inventory_%d.json", projectID))
++}
++
++func loadWinrsInv(projectID int) winrsInvStore {
++	s := winrsInvStore{Hosts: map[string]winrsInvHost{}}
++	if b, err := os.ReadFile(winrsInvFile(projectID)); err == nil {
++		_ = json.Unmarshal(b, &s)
++	}
++	if s.Hosts == nil {
++		s.Hosts = map[string]winrsInvHost{}
++	}
++	return s
++}
++
++func saveWinrsInv(projectID int, s winrsInvStore) {
++	_ = os.MkdirAll(winrsInvDir(), 0755)
++	b, _ := json.MarshalIndent(s, "", "  ")
++	_ = os.WriteFile(winrsInvFile(projectID), b, 0600)
++}
++
++// GetWinRSInventory trả cấu hình (enabled) + inventory đã thu thập của project.
++func GetWinRSInventory(w http.ResponseWriter, r *http.Request) {
++	project := helpers.GetFromContext(r, "project").(db.Project)
++	s := loadWinrsInv(project.ID)
++	enabled := s.Enabled == nil || *s.Enabled
++	helpers.WriteJSON(w, http.StatusOK, map[string]any{"enabled": enabled, "hosts": s.Hosts})
++}
++
++type winrsInvConfigReq struct {
++	Enabled bool `json:"enabled"`
++}
++
++// SetWinRSInventoryConfig bật/tắt thu thập inventory (mặc định bật).
++func SetWinRSInventoryConfig(w http.ResponseWriter, r *http.Request) {
++	project := helpers.GetFromContext(r, "project").(db.Project)
++	var req winrsInvConfigReq
++	if !helpers.Bind(w, r, &req) {
++		return
++	}
++	s := loadWinrsInv(project.ID)
++	s.Enabled = &req.Enabled
++	saveWinrsInv(project.ID, s)
++	helpers.WriteJSON(w, http.StatusOK, map[string]any{"enabled": req.Enabled})
++}
++
++type winrsInvCollectReq struct {
++	Host string `json:"host"`
++	Port int    `json:"port"`
++	Cert string `json:"cert"`
++	Key  string `json:"key"`
++}
++
++// WinRSInventoryCollect chạy script collect trên 1 host → parse JSON → lưu.
++func WinRSInventoryCollect(w http.ResponseWriter, r *http.Request) {
++	project := helpers.GetFromContext(r, "project").(db.Project)
++	var req winrsInvCollectReq
++	if !helpers.Bind(w, r, &req) {
++		return
++	}
++	req.Host = strings.TrimSpace(req.Host)
++	req.Cert = strings.TrimSpace(req.Cert)
++	if req.Host == "" || req.Cert == "" {
++		helpers.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "host, cert bắt buộc"})
++		return
++	}
++	if strings.ContainsAny(req.Cert, "/\\") || strings.ContainsAny(req.Key, "/\\") {
++		helpers.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "cert/key phải là tên file"})
++		return
++	}
++
++	dir := winrsCertsDir()
++	certPEM, err := os.ReadFile(filepath.Join(dir, req.Cert))
++	if err != nil {
++		helpers.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": "không đọc được cert: " + err.Error()})
++		return
++	}
++	keyPEM := certPEM
++	if req.Key != "" {
++		if kp, kerr := os.ReadFile(filepath.Join(dir, req.Key)); kerr == nil {
++			keyPEM = kp
++		}
++	}
++
++	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
++	defer cancel()
++	res, rerr := winrsexec.Run(ctx, winrsexec.Params{
++		Host: req.Host, Port: req.Port, CertPEM: certPEM, KeyPEM: keyPEM,
++		Command: "powershell -EncodedCommand " + encodePowerShellConsole(collectInventoryScript),
++		Timeout: 90 * time.Second,
++	})
++	if rerr != nil {
++		helpers.WriteJSON(w, http.StatusOK, map[string]any{"ok": false, "error": winrsexec.Classify(rerr)})
++		return
++	}
++	out := strings.TrimSpace(res.Stdout)
++	if !json.Valid([]byte(out)) {
++		helpers.WriteJSON(w, http.StatusOK, map[string]any{
++			"ok": false, "error": "output không phải JSON hợp lệ", "stderr": res.Stderr, "raw": firstN(out, 400),
++		})
++		return
++	}
++
++	s := loadWinrsInv(project.ID)
++	s.Hosts[req.Host] = winrsInvHost{TS: time.Now().Unix(), Data: json.RawMessage(out)}
++	saveWinrsInv(project.ID, s)
++
++	helpers.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "host": req.Host, "data": json.RawMessage(out)})
++}
++
++func firstN(s string, n int) string {
++	if len(s) > n {
++		return s[:n]
++	}
++	return s
++}
+diff --git a/api/projects/scripts/collect-inventory.ps1 b/api/projects/scripts/collect-inventory.ps1
+new file mode 100644
+index 0000000..3301787
+--- /dev/null
++++ b/api/projects/scripts/collect-inventory.ps1
+@@ -0,0 +1,29 @@
++# OpenITMS — collect Windows inventory, emit ONE compact JSON line (parsed by the server).
++# Chạy qua WinRS trên máy đã managed. Gọn + nhanh: CIM + registry uninstall + Net* cmdlets.
++$ErrorActionPreference = 'SilentlyContinue'
++$cs = Get-CimInstance Win32_ComputerSystem
++$os = Get-CimInstance Win32_OperatingSystem
++
++$sw = @()
++foreach ($k in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
++               'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*') {
++  $sw += Get-ItemProperty $k | Where-Object { $_.DisplayName } |
++         Select-Object @{n='name';e={$_.DisplayName}}, @{n='version';e={$_.DisplayVersion}}
++}
++$sw = $sw | Sort-Object name -Unique
++
++[ordered]@{
++  hostname   = $env:COMPUTERNAME
++  domain     = $cs.Domain
++  workgroup  = -not $cs.PartOfDomain
++  os         = $os.Caption
++  os_version = $os.Version
++  ips        = @(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -ne '127.0.0.1' } |
++                 Select-Object -ExpandProperty IPAddress)
++  dns        = @((Get-DnsClientServerAddress -AddressFamily IPv4).ServerAddresses | Select-Object -Unique)
++  gateway    = @((Get-NetRoute -DestinationPrefix '0.0.0.0/0').NextHop |
++                 Where-Object { $_ -and $_ -ne '0.0.0.0' } | Select-Object -Unique)
++  users      = @(Get-LocalUser | Select-Object @{n='name';e={$_.Name}}, @{n='enabled';e={[bool]$_.Enabled}})
++  groups     = @(Get-LocalGroup | Select-Object -ExpandProperty Name)
++  software   = @($sw)
++} | ConvertTo-Json -Depth 5 -Compress
+diff --git a/api/router.go b/api/router.go
+index 7baa907..6552f88 100644
+--- a/api/router.go
++++ b/api/router.go
+@@ -333,6 +333,11 @@ func Route(
+ 	// QUICKWIN PATCH 0017 — lịch sử chạy WinRS Console (file tạm project)
+ 	projectUserAPI.Path("/winrs/history").HandlerFunc(projects.GetWinRSHistory).Methods("GET", "HEAD")
+ 
++	// QUICKWIN PATCH 0025 — thu thập inventory máy Windows managed
++	projectUserAPI.Path("/winrs/inventory").HandlerFunc(projects.GetWinRSInventory).Methods("GET", "HEAD")
++	projectUserAPI.Path("/winrs/inventory/config").HandlerFunc(projects.SetWinRSInventoryConfig).Methods("POST")
++	projectUserAPI.Path("/winrs/inventory/collect").HandlerFunc(projects.WinRSInventoryCollect).Methods("POST")
++
+ 	// QUICKWIN PATCH 0018 — network autodiscovery (quét subnet, phân loại device)
+ 	projectUserAPI.Path("/discovery").HandlerFunc(projects.GetDiscovery).Methods("GET", "HEAD")
+ 	projectUserAPI.Path("/discovery/subnet").HandlerFunc(projects.AddDiscoverySubnet).Methods("POST")
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index 2f24ad9..2312c7c 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -63,6 +63,25 @@ export default {
+   winrsHistory: 'Recent commands',
+   winrsHistoryEmpty: 'No commands run yet.',
+   winrsReuse: 'Reuse',
++  certSecurityTitle: 'Security: protect the .pem certificate file',
++  certSecurityBody: 'The .pem file (e.g. openitms-<HOST>.pem) contains the client certificate AND '
++    + 'its private key. It is the credential that logs in as the "openitms" administrator account. '
++    + 'If this file leaks, an attacker can:',
++  certSecurityRisk1: 'Run ANY command as administrator on every Windows machine that trusts this '
++    + 'certificate — i.e. full remote control of your managed fleet.',
++  certSecurityRisk2: 'Read/modify files, install software, create accounts, disable security — '
++    + 'equivalent to physical admin access to those machines.',
++  certSecurityRisk3: 'Move laterally across the network using the compromised hosts.',
++  certSecurityDo: 'Treat it like a root password: keep it only in the server\'s certs/ folder '
++    + '(restricted access), never email/share/commit it. If it leaks, re-enroll the affected '
++    + 'machines — that issues a new certificate and the old one stops working.',
++  invTitle: 'Inventory (managed machines)',
++  invEnabled: 'Enabled',
++  invHint: 'Collect software, IP, DNS, route, hostname, users/groups and domain from a managed '
++    + 'Windows host (runs a read-only script over WinRS).',
++  invCollect: 'Collect (current host)',
++  invEmpty: 'No inventory collected yet. Set host + cert above, then Collect.',
++  invCollectedAt: 'Collected at',
+   loading: 'Loading…',
+   winrsHostHint: 'Run pwsh directly on the Windows host via WinRM (certificate). Place the cert in '
+     + 'the runner\'s {certsDir} folder (or set {envVar}).',
+diff --git a/web/src/views/project/WinRSConsole.vue b/web/src/views/project/WinRSConsole.vue
+index df604e6..5974ef7 100644
+--- a/web/src/views/project/WinRSConsole.vue
++++ b/web/src/views/project/WinRSConsole.vue
+@@ -15,6 +15,26 @@
+         {{ $t('winrsConsoleHint') }}
+       </v-alert>
+ 
++      <v-expansion-panels class="mb-3" flat>
++        <v-expansion-panel style="border: 1px solid #ffcc80;">
++          <v-expansion-panel-header>
++            <div>
++              <v-icon color="warning" class="mr-2">mdi-shield-alert</v-icon>
++              {{ $t('certSecurityTitle') }}
++            </div>
++          </v-expansion-panel-header>
++          <v-expansion-panel-content>
++            <p class="body-2 mb-2">{{ $t('certSecurityBody') }}</p>
++            <ul class="body-2">
++              <li>{{ $t('certSecurityRisk1') }}</li>
++              <li>{{ $t('certSecurityRisk2') }}</li>
++              <li>{{ $t('certSecurityRisk3') }}</li>
++            </ul>
++            <p class="body-2 mt-2 mb-0"><strong>{{ $t('certSecurityDo') }}</strong></p>
++          </v-expansion-panel-content>
++        </v-expansion-panel>
++      </v-expansion-panels>
++
+       <v-expansion-panels class="mb-4" flat>
+         <v-expansion-panel style="border: 1px solid #e0e0e0;">
+           <v-expansion-panel-header>
+@@ -142,6 +162,85 @@
+         </div>
+       </div>
+ 
++      <!-- Inventory (managed machines) -->
++      <v-divider class="mt-6" />
++      <div class="mt-4">
++        <div class="d-flex align-center mb-1">
++          <span class="subtitle-2">
++            <v-icon small class="mr-1">mdi-clipboard-list</v-icon>{{ $t('invTitle') }}
++          </span>
++          <v-switch
++            v-model="invEnabled"
++            @change="saveInvConfig"
++            :label="$t('invEnabled')"
++            dense hide-details
++            class="ml-4 mt-0 pt-0"
++          ></v-switch>
++          <v-spacer></v-spacer>
++          <v-btn
++            small color="primary" outlined
++            :loading="invCollecting"
++            :disabled="invCollecting || !host || !cert"
++            @click="collectInventory"
++          >
++            <v-icon left small>mdi-refresh</v-icon>{{ $t('invCollect') }}
++          </v-btn>
++        </div>
++        <div class="caption grey--text mb-2">{{ $t('invHint') }}</div>
++
++        <div v-if="Object.keys(inventory).length === 0" class="caption grey--text">
++          {{ $t('invEmpty') }}
++        </div>
++        <v-expansion-panels v-else multiple>
++          <v-expansion-panel v-for="(h, ip) in inventory" :key="ip">
++            <v-expansion-panel-header>
++              <div>
++                <code>{{ ip }}</code>
++                <span class="ml-2">{{ h.data.hostname }}</span>
++                <span class="caption grey--text ml-2">
++                  {{ h.data.domain }} · {{ h.data.os }} ·
++                  {{ (h.data.software || []).length }} apps
++                </span>
++              </div>
++            </v-expansion-panel-header>
++            <v-expansion-panel-content>
++              <table class="InvTable body-2">
++                <tr><td>Hostname</td><td>{{ h.data.hostname }}</td></tr>
++                <tr>
++                  <td>Domain</td>
++                  <td>{{ h.data.domain }} ({{ netKind(h) }})</td>
++                </tr>
++                <tr><td>OS</td><td>{{ h.data.os }} {{ h.data.os_version }}</td></tr>
++                <tr><td>IPs</td><td>{{ (h.data.ips || []).join(', ') }}</td></tr>
++                <tr><td>DNS</td><td>{{ (h.data.dns || []).join(', ') }}</td></tr>
++                <tr><td>Gateway</td><td>{{ (h.data.gateway || []).join(', ') }}</td></tr>
++                <tr>
++                  <td>Users</td>
++                  <td>{{ (h.data.users || []).map((u) => u.name).join(', ') }}</td>
++                </tr>
++                <tr>
++                  <td>Groups</td>
++                  <td class="caption">{{ (h.data.groups || []).join(', ') }}</td>
++                </tr>
++                <tr>
++                  <td>Software ({{ (h.data.software || []).length }})</td>
++                  <td>
++                    <div class="InvSoftware">
++                      <div v-for="(s, i) in h.data.software" :key="i">
++                        {{ s.name }} <span class="grey--text">{{ s.version }}</span>
++                      </div>
++                    </div>
++                  </td>
++                </tr>
++              </table>
++              <div class="caption grey--text mt-1">
++                {{ $t('invCollectedAt') }} {{ formatTime(h.ts) }}
++              </div>
++            </v-expansion-panel-content>
++          </v-expansion-panel>
++        </v-expansion-panels>
++      </div>
++
+       <div class="mt-6">
+         <div class="subtitle-2 mb-1">
+           <v-icon small class="mr-1">mdi-history</v-icon>{{ $t('winrsHistory') }}
+@@ -209,6 +308,21 @@
+   font-family: monospace;
+   font-size: 12px;
+ }
++
++.InvTable td {
++  padding: 3px 8px;
++  vertical-align: top;
++}
++.InvTable td:first-child {
++  color: #888;
++  white-space: nowrap;
++  width: 110px;
++}
++.InvSoftware {
++  max-height: 220px;
++  overflow-y: auto;
++  font-size: 12px;
++}
+ </style>
+ <script>
+ /* eslint-disable import/no-extraneous-dependencies,import/extensions */
+@@ -240,6 +354,9 @@ export default {
+       lastExit: null,
+       errorMsg: null,
+       history: [],
++      inventory: {},
++      invEnabled: true,
++      invCollecting: false,
+       cmOptions: {
+         tabSize: 2,
+         mode: 'text/plain',
+@@ -251,7 +368,7 @@ export default {
+ 
+   async created() {
+     this.restoreLastRun();
+-    await Promise.all([this.loadCerts(), this.loadHistory()]);
++    await Promise.all([this.loadCerts(), this.loadHistory(), this.loadInventory()]);
+   },
+ 
+   methods: {
+@@ -292,6 +409,42 @@ export default {
+       }
+     },
+ 
++    async loadInventory() {
++      try {
++        const { data } = await axios.get(`/api/project/${this.projectId}/winrs/inventory`);
++        this.invEnabled = data.enabled !== false;
++        this.inventory = data.hosts || {};
++      } catch (e) {
++        this.inventory = {};
++      }
++    },
++
++    async saveInvConfig() {
++      try {
++        await axios.post(`/api/project/${this.projectId}/winrs/inventory/config`, { enabled: this.invEnabled });
++      } catch (e) { /* ignore */ }
++    },
++
++    async collectInventory() {
++      this.invCollecting = true;
++      this.errorMsg = null;
++      try {
++        const { data } = await axios.post(`/api/project/${this.projectId}/winrs/inventory/collect`, {
++          host: this.host, port: this.port || 5986, cert: this.cert,
++        });
++        if (data.ok) {
++          this.$set(this.inventory, data.host, {
++            ts: Math.floor(Date.now() / 1000), data: data.data,
++          });
++        } else {
++          this.errorMsg = data.error;
++        }
++      } catch (e) {
++        this.errorMsg = e.response?.data?.error || e.message || this.$t('winrsUnknownError');
++      }
++      this.invCollecting = false;
++    },
++
+     reuse(entry) {
+       this.host = entry.host;
+       this.command = entry.command;
+@@ -301,6 +454,10 @@ export default {
+       return new Date(ts * 1000).toLocaleString();
+     },
+ 
++    netKind(h) {
++      return h.data.workgroup ? 'workgroup' : 'domain-joined';
++    },
++
+     async enroll1click() {
+       this.enrolling = true;
+       this.errorMsg = null;

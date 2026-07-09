@@ -25,3 +25,4 @@
 0022-enroll-clientcert-negotiation.patch
 0023-enroll-localaccount-token.patch
 0024-enroll-admin-domain.patch
+0025-winrs-inventory.patch
