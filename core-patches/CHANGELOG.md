@@ -3,6 +3,13 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-09 — 0027-inventory-filter-diff-export.patch
+**WHY:** inventory dễ audit: (A) lọc Microsoft khỏi service/task (checkbox hiện lại + chỉ hiện Running);
+(B) so sánh 2 lần quét (software mới/gỡ, service đổi state); (C) export CSV/JSON fleet.
+**WHAT:** collect script +cờ ms cho service; winrsInvHost +Prev (setHostData); ExportWinRSInventory
+(csv/json); router +export route; UI checkbox filter + panel "Changes since last scan" + nút Export.
+Verify thật: 259/288 service ms; CSV/JSON export OK. Spec 0027.
+
 ## 2026-07-09 — 0026-inventory-extra-schedule.patch
 **WHY:** thu thập thêm services + scheduled tasks + patch level (hotfixes); auto-collect định kỳ 4h/lần.
 **WHAT:** collect-inventory.ps1 +services/tasks/hotfixes/os_build. quickwin_winrs_inventory.go: config

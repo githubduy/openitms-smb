@@ -1,0 +1,350 @@
+# PATCH: 0027-inventory-filter-diff-export
+# WHY: Inventory dễ audit hơn: (A) lọc service/task Microsoft (mặc định ẩn, checkbox hiện lại +
+#      checkbox chỉ hiện service Running); (B) so sánh 2 lần quét (software mới/gỡ, service đổi state);
+#      (C) export CSV/JSON toàn fleet.
+# WHAT: collect-inventory.ps1: +cờ ms cho service (PathName under \Windows\). quickwin_winrs_inventory.go:
+#       winrsInvHost +Prev/PrevTS (setHostData chuyển data cũ→prev); ExportWinRSInventory (csv 1 dòng/host
+#       + json). router +route export. UI: checkbox showMicrosoft/onlyRunning (filteredServices/Tasks),
+#       panel 'Changes since last scan' (diff data vs prev), nút Export CSV/JSON.
+# SPEC: docs/L2-specs/core-patches/0027-inventory-filter-diff-export.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/quickwin_winrs_inventory.go b/api/projects/quickwin_winrs_inventory.go
+index 7b52b1e..27a7854 100644
+--- a/api/projects/quickwin_winrs_inventory.go
++++ b/api/projects/quickwin_winrs_inventory.go
+@@ -6,12 +6,14 @@ package projects
+ 
+ import (
+ 	"context"
++	"encoding/csv"
+ 	_ "embed"
+ 	"encoding/json"
+ 	"fmt"
+ 	"net/http"
+ 	"os"
+ 	"path/filepath"
++	"sort"
+ 	"strings"
+ 	"time"
+ 
+@@ -25,8 +27,21 @@ import (
+ var collectInventoryScript string
+ 
+ type winrsInvHost struct {
+-	TS   int64           `json:"ts"`
+-	Data json.RawMessage `json:"data"`
++	TS     int64           `json:"ts"`
++	Data   json.RawMessage `json:"data"`
++	PrevTS int64           `json:"prev_ts,omitempty"` // lần quét trước (để so sánh thay đổi)
++	Prev   json.RawMessage `json:"prev,omitempty"`
++}
++
++// setHostData lưu data mới, chuyển data cũ sang prev (giữ 1 mốc để so sánh).
++func (s *winrsInvStore) setHostData(host string, data json.RawMessage, ts int64) {
++	old := s.Hosts[host]
++	h := winrsInvHost{TS: ts, Data: data}
++	if len(old.Data) > 0 {
++		h.PrevTS = old.TS
++		h.Prev = old.Data
++	}
++	s.Hosts[host] = h
+ }
+ 
+ const defaultInvIntervalMin = 240 // 4h
+@@ -143,7 +158,7 @@ func RunDueInventoryCollect(store db.Store) {
+ 				if derr != nil {
+ 					continue // host offline / cert sai → bỏ qua
+ 				}
+-				s.Hosts[h.Addr] = winrsInvHost{TS: now, Data: data}
++				s.setHostData(h.Addr, data, now)
+ 			}
+ 		}
+ 		s.LastCollect = now
+@@ -217,8 +232,66 @@ func WinRSInventoryCollect(w http.ResponseWriter, r *http.Request) {
+ 	}
+ 
+ 	s := loadWinrsInv(project.ID)
+-	s.Hosts[req.Host] = winrsInvHost{TS: time.Now().Unix(), Data: data}
++	s.setHostData(req.Host, data, time.Now().Unix())
+ 	saveWinrsInv(project.ID, s)
+ 
+ 	helpers.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "host": req.Host, "data": data})
+ }
++
++type invDataSummary struct {
++	Hostname string   `json:"hostname"`
++	Domain   string   `json:"domain"`
++	OS       string   `json:"os"`
++	OSBuild  string   `json:"os_build"`
++	IPs      []string `json:"ips"`
++	DNS      []string `json:"dns"`
++	Gateway  []string `json:"gateway"`
++	Users    []struct {
++		Name string `json:"name"`
++	} `json:"users"`
++	Groups   []string          `json:"groups"`
++	Software []json.RawMessage `json:"software"`
++	Services []json.RawMessage `json:"services"`
++	Tasks    []json.RawMessage `json:"tasks"`
++	Hotfixes []json.RawMessage `json:"hotfixes"`
++}
++
++// ExportWinRSInventory tải inventory toàn fleet: ?format=json (raw) hoặc csv (1 dòng/host, tóm tắt).
++func ExportWinRSInventory(w http.ResponseWriter, r *http.Request) {
++	project := helpers.GetFromContext(r, "project").(db.Project)
++	s := loadWinrsInv(project.ID)
++
++	if r.URL.Query().Get("format") == "json" {
++		w.Header().Set("Content-Type", "application/json; charset=utf-8")
++		w.Header().Set("Content-Disposition", "attachment; filename=inventory.json")
++		_ = json.NewEncoder(w).Encode(s.Hosts)
++		return
++	}
++
++	ips := make([]string, 0, len(s.Hosts))
++	for ip := range s.Hosts {
++		ips = append(ips, ip)
++	}
++	sort.Strings(ips)
++
++	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
++	w.Header().Set("Content-Disposition", "attachment; filename=inventory.csv")
++	cw := csv.NewWriter(w)
++	_ = cw.Write([]string{
++		"ip", "hostname", "domain", "os", "os_build", "ips", "dns", "gateway",
++		"users", "groups", "software", "services", "tasks", "hotfixes", "collected",
++	})
++	for _, ip := range ips {
++		h := s.Hosts[ip]
++		var d invDataSummary
++		_ = json.Unmarshal(h.Data, &d)
++		_ = cw.Write([]string{
++			ip, d.Hostname, d.Domain, d.OS, d.OSBuild,
++			strings.Join(d.IPs, " "), strings.Join(d.DNS, " "), strings.Join(d.Gateway, " "),
++			fmt.Sprint(len(d.Users)), fmt.Sprint(len(d.Groups)), fmt.Sprint(len(d.Software)),
++			fmt.Sprint(len(d.Services)), fmt.Sprint(len(d.Tasks)), fmt.Sprint(len(d.Hotfixes)),
++			time.Unix(h.TS, 0).Format("2006-01-02 15:04"),
++		})
++	}
++	cw.Flush()
++}
+diff --git a/api/projects/scripts/collect-inventory.ps1 b/api/projects/scripts/collect-inventory.ps1
+index 1e3ddda..51e993c 100644
+--- a/api/projects/scripts/collect-inventory.ps1
++++ b/api/projects/scripts/collect-inventory.ps1
+@@ -12,9 +12,10 @@ foreach ($k in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+ }
+ $sw = $sw | Sort-Object name -Unique
+ 
+-# Services (Win32_Service: name/state/start mode).
+-$svc = @(Get-CimInstance Win32_Service |
+-         Select-Object @{n='name';e={$_.Name}}, @{n='state';e={$_.State}}, @{n='start';e={$_.StartMode}})
++# Services (Win32_Service: name/state/start mode). ms=chạy từ %WINDIR% (built-in/Microsoft) để lọc audit.
++$svc = @(Get-CimInstance Win32_Service | Select-Object `
++           @{n='name';e={$_.Name}}, @{n='state';e={$_.State}}, @{n='start';e={$_.StartMode}},
++           @{n='ms';e={[bool]($_.PathName -like '*\Windows\*')}})
+ 
+ # Scheduled tasks (Get-ScheduledTask có từ Win8/2012+; bỏ qua nếu không có).
+ $tasks = @(Get-ScheduledTask -ErrorAction SilentlyContinue |
+diff --git a/api/router.go b/api/router.go
+index 6552f88..4c7f2d5 100644
+--- a/api/router.go
++++ b/api/router.go
+@@ -337,6 +337,7 @@ func Route(
+ 	projectUserAPI.Path("/winrs/inventory").HandlerFunc(projects.GetWinRSInventory).Methods("GET", "HEAD")
+ 	projectUserAPI.Path("/winrs/inventory/config").HandlerFunc(projects.SetWinRSInventoryConfig).Methods("POST")
+ 	projectUserAPI.Path("/winrs/inventory/collect").HandlerFunc(projects.WinRSInventoryCollect).Methods("POST")
++	projectUserAPI.Path("/winrs/inventory/export").HandlerFunc(projects.ExportWinRSInventory).Methods("GET", "HEAD")
+ 
+ 	// QUICKWIN PATCH 0018 — network autodiscovery (quét subnet, phân loại device)
+ 	projectUserAPI.Path("/discovery").HandlerFunc(projects.GetDiscovery).Methods("GET", "HEAD")
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index 1c49495..8e42ef2 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -84,6 +84,11 @@ export default {
+   invEmpty: 'No inventory collected yet. Set host + cert above, then Collect.',
+   invCollectedAt: 'Collected at',
+   invIntervalMin: 'Auto every (min)',
++  invShowMs: 'Show Microsoft services/tasks',
++  invOnlyRunning: 'Only running services',
++  invChangesTitle: 'Changes since last scan',
++  invSwAdded: 'Software installed',
++  invSwRemoved: 'Software removed',
+   loading: 'Loading…',
+   winrsHostHint: 'Run pwsh directly on the Windows host via WinRM (certificate). Place the cert in '
+     + 'the runner\'s {certsDir} folder (or set {envVar}).',
+diff --git a/web/src/views/project/WinRSConsole.vue b/web/src/views/project/WinRSConsole.vue
+index c412d84..7863e77 100644
+--- a/web/src/views/project/WinRSConsole.vue
++++ b/web/src/views/project/WinRSConsole.vue
+@@ -188,7 +188,21 @@
+           ></v-text-field>
+           <v-spacer></v-spacer>
+           <v-btn
+-            small color="primary" outlined
++            v-if="hasInventory"
++            small text
++            :href="`/api/project/${projectId}/winrs/inventory/export?format=csv`"
++          >
++            <v-icon left small>mdi-file-delimited</v-icon>CSV
++          </v-btn>
++          <v-btn
++            v-if="hasInventory"
++            small text
++            :href="`/api/project/${projectId}/winrs/inventory/export?format=json`"
++          >
++            <v-icon left small>mdi-code-json</v-icon>JSON
++          </v-btn>
++          <v-btn
++            small color="primary" outlined class="ml-2"
+             :loading="invCollecting"
+             :disabled="invCollecting || !host || !cert"
+             @click="collectInventory"
+@@ -196,9 +210,23 @@
+             <v-icon left small>mdi-refresh</v-icon>{{ $t('invCollect') }}
+           </v-btn>
+         </div>
+-        <div class="caption grey--text mb-2">{{ $t('invHint') }}</div>
++        <div class="caption grey--text mb-1">{{ $t('invHint') }}</div>
++        <div v-if="hasInventory" class="mb-2">
++          <v-checkbox
++            v-model="showMicrosoft"
++            :label="$t('invShowMs')"
++            dense hide-details
++            class="d-inline-block mr-4 mt-0 pt-0"
++          ></v-checkbox>
++          <v-checkbox
++            v-model="onlyRunning"
++            :label="$t('invOnlyRunning')"
++            dense hide-details
++            class="d-inline-block mt-0 pt-0"
++          ></v-checkbox>
++        </div>
+ 
+-        <div v-if="Object.keys(inventory).length === 0" class="caption grey--text">
++        <div v-if="!hasInventory" class="caption grey--text">
+           {{ $t('invEmpty') }}
+         </div>
+         <v-expansion-panels v-else multiple>
+@@ -214,6 +242,27 @@
+               </div>
+             </v-expansion-panel-header>
+             <v-expansion-panel-content>
++              <v-alert
++                v-if="hasChanges(h)"
++                dense text color="warning" class="mb-2 py-1"
++              >
++                <div class="caption font-weight-medium">
++                  {{ $t('invChangesTitle') }} ({{ formatTime(h.prev_ts) }} → {{ formatTime(h.ts) }})
++                </div>
++                <div v-if="changes(h).swAdded.length" class="caption">
++                  <v-icon x-small color="success">mdi-plus</v-icon>
++                  {{ $t('invSwAdded') }}: {{ changes(h).swAdded.join(', ') }}
++                </div>
++                <div v-if="changes(h).swRemoved.length" class="caption">
++                  <v-icon x-small color="error">mdi-minus</v-icon>
++                  {{ $t('invSwRemoved') }}: {{ changes(h).swRemoved.join(', ') }}
++                </div>
++                <div v-for="(c, i) in changes(h).svc" :key="i" class="caption">
++                  <v-icon x-small>mdi-swap-horizontal</v-icon>
++                  {{ c.name }}: {{ c.from }} → {{ c.to }}
++                </div>
++              </v-alert>
++
+               <table class="InvTable body-2">
+                 <tr><td>Hostname</td><td>{{ h.data.hostname }}</td></tr>
+                 <tr>
+@@ -244,10 +293,10 @@
+                   </td>
+                 </tr>
+                 <tr>
+-                  <td>Services ({{ (h.data.services || []).length }})</td>
++                  <td>Services ({{ filteredServices(h).length }})</td>
+                   <td>
+                     <div class="InvSoftware">
+-                      <div v-for="(s, i) in h.data.services" :key="i">
++                      <div v-for="(s, i) in filteredServices(h)" :key="i">
+                         {{ s.name }}
+                         <span :class="s.state === 'Running' ? 'success--text' : 'grey--text'">
+                           {{ s.state }}</span>
+@@ -257,10 +306,10 @@
+                   </td>
+                 </tr>
+                 <tr>
+-                  <td>Tasks ({{ (h.data.tasks || []).length }})</td>
++                  <td>Tasks ({{ filteredTasks(h).length }})</td>
+                   <td>
+                     <div class="InvSoftware">
+-                      <div v-for="(t, i) in h.data.tasks" :key="i">
++                      <div v-for="(t, i) in filteredTasks(h)" :key="i">
+                         <span class="grey--text">{{ t.path }}</span>{{ t.name }}
+                         <span class="grey--text">· {{ t.state }}</span>
+                       </div>
+@@ -403,6 +452,8 @@ export default {
+       invEnabled: true,
+       invInterval: 240,
+       invCollecting: false,
++      showMicrosoft: false,
++      onlyRunning: false,
+       cmOptions: {
+         tabSize: 2,
+         mode: 'text/plain',
+@@ -412,6 +463,12 @@ export default {
+     };
+   },
+ 
++  computed: {
++    hasInventory() {
++      return Object.keys(this.inventory).length > 0;
++    },
++  },
++
+   async created() {
+     this.restoreLastRun();
+     await Promise.all([this.loadCerts(), this.loadHistory(), this.loadInventory()]);
+@@ -422,6 +479,43 @@ export default {
+       EventBus.$emit('i-show-drawer');
+     },
+ 
++    filteredServices(h) {
++      let svc = h.data.services || [];
++      if (!this.showMicrosoft) svc = svc.filter((s) => !s.ms);
++      if (this.onlyRunning) svc = svc.filter((s) => s.state === 'Running');
++      return svc;
++    },
++
++    filteredTasks(h) {
++      let tasks = h.data.tasks || [];
++      if (!this.showMicrosoft) {
++        tasks = tasks.filter((t) => !(t.path || '').startsWith('\\Microsoft\\'));
++      }
++      return tasks;
++    },
++
++    hasChanges(h) {
++      if (!h.prev) return false;
++      const c = this.changes(h);
++      return c.swAdded.length || c.swRemoved.length || c.svc.length;
++    },
++
++    changes(h) {
++      const cur = h.data || {};
++      const prev = h.prev || {};
++      const names = (arr) => (arr || []).map((x) => x.name);
++      const curSw = names(cur.software);
++      const prevSw = names(prev.software);
++      const swAdded = curSw.filter((n) => !prevSw.includes(n));
++      const swRemoved = prevSw.filter((n) => !curSw.includes(n));
++      const prevState = {};
++      (prev.services || []).forEach((s) => { prevState[s.name] = s.state; });
++      const svc = (cur.services || [])
++        .filter((s) => prevState[s.name] !== undefined && prevState[s.name] !== s.state)
++        .map((s) => ({ name: s.name, from: prevState[s.name], to: s.state }));
++      return { swAdded, swRemoved, svc };
++    },
++
+     lastRunKey() {
+       return `winrs-lastrun-${this.projectId}`;
+     },

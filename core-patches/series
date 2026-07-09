@@ -27,3 +27,4 @@
 0024-enroll-admin-domain.patch
 0025-winrs-inventory.patch
 0026-inventory-extra-schedule.patch
+0027-inventory-filter-diff-export.patch
