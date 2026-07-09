@@ -3,6 +3,12 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-09 — 0023-enroll-localaccount-token.patch
+**WHY:** sau cert-auth OK (0022), WinRS vẫn "AccessDenied (Code 5)" — local admin đăng nhập qua mạng
+bị UAC lọc token (standard) → không đủ quyền tạo WinRM shell. (Debug thật.)
+**WHAT:** winrs-enroll.ps1 set LocalAccountTokenFilterPolicy=1 (HKLM Policies\System) → full token cho
+local-account remote logon. Mảnh cuối để WinRS chạy end-to-end. Spec 0023.
+
 ## 2026-07-08 — 0022-enroll-clientcert-negotiation.patch
 **WHY:** WinRS connect FAIL 401 dù cert đúng — WinRM listener KHÔNG bật "Negotiate Client Certificate"
 trên binding HTTP.sys → server không hỏi client cert → không map → 401. (Debug thật trên máy Windows.)

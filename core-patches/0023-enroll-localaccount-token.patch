@@ -1,0 +1,24 @@
+# PATCH: 0023-enroll-localaccount-token
+# WHY: Sau khi cert-auth chạy (0022), WinRS vẫn 'AccessDenied (Code 5)': local account đăng nhập
+#      qua mạng bị UAC cấp token đã lọc (standard user) dù là admin → không đủ quyền tạo WinRM shell.
+# WHAT: winrs-enroll.ps1: set HKLM ...Policies\System\LocalAccountTokenFilterPolicy=1 (DWORD) sau khi
+#       thêm user vào Administrators → local-account remote logon được token đầy đủ. Mảnh cuối cho WinRS.
+# SPEC: docs/L2-specs/core-patches/0023-enroll-localaccount-token.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/scripts/winrs-enroll.ps1 b/api/projects/scripts/winrs-enroll.ps1
+index d4a0c82..5522240 100644
+--- a/api/projects/scripts/winrs-enroll.ps1
++++ b/api/projects/scripts/winrs-enroll.ps1
+@@ -77,6 +77,11 @@ if (Get-LocalUser -Name $User -ErrorAction SilentlyContinue) {
+ }
+ Add-LocalGroupMember -Group "Administrators" -Member $User -ErrorAction SilentlyContinue
+ 
++# Local accounts get a UAC-FILTERED (standard-user) token over the network -> WinRM returns
++# "Access Denied" even for local admins. Give local-account remote logons their full token.
++New-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" `
++  -Name LocalAccountTokenFilterPolicy -Value 1 -PropertyType DWord -Force | Out-Null
++
+ Write-Host "==> 2/5  Create certificate for '$User'" -ForegroundColor Cyan
+ # Clean up certs + WinRM cert mappings from previous runs (avoid ambiguity -> 401).
+ foreach ($store in "Cert:\CurrentUser\My", "Cert:\LocalMachine\My", "Cert:\LocalMachine\Root", "Cert:\LocalMachine\TrustedPeople") {
