@@ -1,0 +1,29 @@
+# PATCH: 0024-enroll-admin-domain
+# WHY: Trên máy DOMAIN-JOINED, Add-LocalGroupMember -Member 'openitms' resolve nhầm tên sang domain
+#      -> fail thầm (SilentlyContinue) -> openitms KHONG vao Administrators -> WinRS AccessDenied.
+# WHAT: winrs-enroll.ps1: thêm user vao Administrators bang 'net localgroup Administrators <user> /add'
+#       (tin cay cho local account tren may domain) + verify; fallback Add-LocalGroupMember voi ten
+#       COMPUTERNAME\user neu chua vao.
+# SPEC: docs/L2-specs/core-patches/0024-enroll-admin-domain.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/scripts/winrs-enroll.ps1 b/api/projects/scripts/winrs-enroll.ps1
+index 5522240..553c810 100644
+--- a/api/projects/scripts/winrs-enroll.ps1
++++ b/api/projects/scripts/winrs-enroll.ps1
+@@ -75,7 +75,14 @@ if (Get-LocalUser -Name $User -ErrorAction SilentlyContinue) {
+   New-LocalUser -Name $User -Password $secure -FullName "OpenITMS Agent" `
+     -Description "OpenITMS remote management" -PasswordNeverExpires | Out-Null
+ }
+-Add-LocalGroupMember -Group "Administrators" -Member $User -ErrorAction SilentlyContinue
++# Add to local Administrators. Add-LocalGroupMember can mis-resolve the name to the domain on
++# domain-joined machines (silently fails) -> use net localgroup (reliable for local accounts),
++# then verify membership so the user isn't left as a non-admin (WinRM would return AccessDenied).
++& net localgroup Administrators $User /add 2>$null | Out-Null
++$inAdmins = (& net localgroup Administrators) -match "(^|\\)$([regex]::Escape($User))\s*$"
++if (-not $inAdmins) {
++  Add-LocalGroupMember -Group "Administrators" -Member "$env:COMPUTERNAME\$User" -ErrorAction SilentlyContinue
++}
+ 
+ # Local accounts get a UAC-FILTERED (standard-user) token over the network -> WinRM returns
+ # "Access Denied" even for local admins. Give local-account remote logons their full token.

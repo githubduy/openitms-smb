@@ -3,6 +3,12 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-09 — 0024-enroll-admin-domain.patch
+**WHY:** máy domain-joined: Add-LocalGroupMember resolve tên local user nhầm sang domain → fail thầm →
+openitms KHÔNG vào Administrators → WinRS AccessDenied (dù đã fix token filter). (Debug thật.)
+**WHAT:** winrs-enroll.ps1 dùng `net localgroup Administrators <user> /add` + verify (fallback
+Add-LocalGroupMember COMPUTERNAME\user). Spec 0024.
+
 ## 2026-07-09 — 0023-enroll-localaccount-token.patch
 **WHY:** sau cert-auth OK (0022), WinRS vẫn "AccessDenied (Code 5)" — local admin đăng nhập qua mạng
 bị UAC lọc token (standard) → không đủ quyền tạo WinRM shell. (Debug thật.)

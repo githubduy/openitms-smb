@@ -24,3 +24,4 @@
 0021-discovery-autoadd-schedule.patch
 0022-enroll-clientcert-negotiation.patch
 0023-enroll-localaccount-token.patch
+0024-enroll-admin-domain.patch
