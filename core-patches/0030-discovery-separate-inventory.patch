@@ -1,0 +1,45 @@
+# PATCH: 0030-discovery-separate-inventory
+# WHY: Discovery dang tron may remote vao inventory local "May host (WinRS)" (invs[0]=127.0.0.1).
+#      May host mac dinh = may local; may discovery phai vao inventory RIENG.
+# WHAT: addHostsToWinRSInventory chon/ tao inventory ten "Discovered machines (WinRS)" theo ten,
+#       khong con lay invs[0]. managedHosts van quet moi WinRS inventory (local + discovered).
+# SPEC: docs/L2-specs/core-patches/0030-discovery-separate-inventory.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/quickwin_discovery.go b/api/projects/quickwin_discovery.go
+index 4ac9d07..61363bf 100644
+--- a/api/projects/quickwin_discovery.go
++++ b/api/projects/quickwin_discovery.go
+@@ -119,7 +119,12 @@ func managedHosts(store db.Store, projectID int) map[string]bool {
+ 	return set
+ }
+ 
+-// addHostsToWinRSInventory thêm danh sách IP vào inventory WinRS của project (tạo nếu chưa có).
++// winrsDiscoveredInvName — inventory RIÊNG cho máy phát hiện qua Network Discovery.
++// Tách khỏi inventory local "Máy host (WinRS)" (127.0.0.1, seed) để không trộn máy remote vào máy chủ.
++const winrsDiscoveredInvName = "Discovered machines (WinRS)"
++
++// addHostsToWinRSInventory thêm danh sách IP vào inventory WinRS RIÊNG của máy discovery (tạo nếu chưa có).
++// KHÔNG đụng inventory local host: luôn dùng/ tạo inventory tên winrsDiscoveredInvName, không lấy invs[0].
+ // cert = QUICKWIN_WINRS_DEFAULT_CERT nếu có, ngược lại "<ip>.pem" (placeholder tới khi enroll).
+ func addHostsToWinRSInventory(store db.Store, projectID int, ips []string) int {
+ 	if len(ips) == 0 {
+@@ -129,10 +134,14 @@ func addHostsToWinRSInventory(store db.Store, projectID int, ips []string) int {
+ 	invs, _ := store.GetInventories(projectID, db.RetrieveQueryParams{}, []db.InventoryType{db.InventoryWinRS})
+ 
+ 	var inv db.Inventory
+-	if len(invs) > 0 {
+-		inv = invs[0]
+-	} else {
+-		inv = db.Inventory{Name: "WinRS Endpoints", ProjectID: projectID, Type: db.InventoryWinRS}
++	for _, iv := range invs {
++		if iv.Name == winrsDiscoveredInvName { // chỉ inventory discovery, bỏ qua inventory local host
++			inv = iv
++			break
++		}
++	}
++	if inv.ID == 0 {
++		inv = db.Inventory{Name: winrsDiscoveredInvName, ProjectID: projectID, Type: db.InventoryWinRS}
+ 	}
+ 
+ 	existing := map[string]bool{}

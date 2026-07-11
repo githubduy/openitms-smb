@@ -3,6 +3,14 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-11 — 0030-discovery-separate-inventory.patch
+**WHY:** Network Discovery đang trộn máy remote vào inventory local "Máy host (WinRS)" (dùng
+`invs[0]` = 127.0.0.1). Máy host mặc định phải hiểu là máy local; máy discovery phải vào inventory riêng.
+**WHAT:** `addHostsToWinRSInventory` chọn/tạo inventory tên "Discovered machines (WinRS)" theo tên,
+không còn lấy `invs[0]` → không đụng inventory local host. `managedHosts` giữ nguyên (quét mọi WinRS
+inventory nên máy đã thêm vẫn được đánh dấu managed). Verify E2E: add discovery → inventory mới tách
+riêng, "Máy host (WinRS)" vẫn chỉ 127.0.0.1. Spec 0030.
+
 ## 2026-07-11 — 0029-template-script-editor.patch
 **WHY:** SMB IT chưa có script trong repo — cần tạo/sửa file .yml/.sh/.ps1 ngay trên UI và
 commit vào git local, khỏi phải clone repo + dùng git ngoài.
