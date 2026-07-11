@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 const sampleOsqueryOut = "@@system\r\n" +
 	`[{"hostname":"PC01","hardware_vendor":"Dell Inc. ","hardware_model":"OptiPlex 7090"}]` + "\r\n" +
@@ -40,6 +43,23 @@ func TestSplitSectionsIgnoresErrorAndEnd(t *testing.T) {
 	s := splitSections("@@ERROR osqueryi not found\r\n@@end\r\n")
 	if len(s) != 0 {
 		t.Fatalf("ERROR/end không được tạo section, got %v", s)
+	}
+}
+
+func TestBuildOsqueryPS(t *testing.T) {
+	withDeploy := buildOsqueryPS(true, "https://example/osquery.msi")
+	if !strings.Contains(withDeploy, "Invoke-WebRequest") || !strings.Contains(withDeploy, "https://example/osquery.msi") {
+		t.Fatal("autoDeploy=true phải có block tải + URL MSI")
+	}
+	if !strings.Contains(withDeploy, "msiexec") || !strings.Contains(withDeploy, "@@system") {
+		t.Fatal("thiếu msiexec / query section")
+	}
+	noDeploy := buildOsqueryPS(false, "https://example/osquery.msi")
+	if strings.Contains(noDeploy, "Invoke-WebRequest") {
+		t.Fatal("autoDeploy=false KHÔNG được có block tải MSI")
+	}
+	if !strings.Contains(noDeploy, "@@system") {
+		t.Fatal("no-deploy vẫn phải có query section")
 	}
 }
 

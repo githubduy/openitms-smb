@@ -13,11 +13,29 @@ import (
 	winrsexec "quickwin.dev/winrsexec"
 )
 
-// osqueryPS — script PowerShell chạy osqueryi cho từng bảng, in kèm marker để plugin tách.
-const osqueryPS = `$ErrorActionPreference='SilentlyContinue'
+// defaultOsqueryMSI — nguồn cài osquery cho Windows (đổi qua env QUICKWIN_OSQUERY_MSI nếu air-gapped/mirror).
+const defaultOsqueryMSI = "https://pkg.osquery.io/windows/osquery-5.12.1.msi"
+
+// buildOsqueryPS sinh script PowerShell chạy osqueryi cho từng bảng (marker @@<name>).
+// autoDeploy=true: nếu máy đích chưa có osqueryi thì tải + cài MSI (msiexec /qn) rồi chạy.
+func buildOsqueryPS(autoDeploy bool, msiURL string) string {
+	deploy := ""
+	if autoDeploy {
+		deploy = `if(-not $oq){
+  try{
+    $m="$env:TEMP\osquery-di.msi"
+    [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -Uri '` + msiURL + `' -OutFile $m -UseBasicParsing
+    Start-Process msiexec -ArgumentList '/i',"$m",'/qn','/norestart' -Wait
+    $c='C:\Program Files\osquery\osqueryi.exe'; if(Test-Path $c){$oq=$c}
+  }catch{}
+}
+`
+	}
+	return `$ErrorActionPreference='SilentlyContinue'
 $oq=(Get-Command osqueryi.exe -EA SilentlyContinue).Source
 if(-not $oq){foreach($p in @('C:\Program Files\osquery\osqueryi.exe','C:\ProgramData\osquery\osqueryi.exe')){if(Test-Path $p){$oq=$p;break}}}
-if(-not $oq){Write-Output '@@ERROR osqueryi not found';exit}
+` + deploy + `if(-not $oq){Write-Output '@@ERROR osqueryi not found';exit}
 function Q($s){& $oq --json $s}
 Write-Output '@@system';Q 'SELECT hostname,cpu_brand,hardware_vendor,hardware_model FROM system_info'
 Write-Output '@@os';Q 'SELECT name,version,build FROM os_version'
@@ -25,6 +43,7 @@ Write-Output '@@software';Q 'SELECT name,version FROM programs'
 Write-Output '@@services';Q 'SELECT name,status,start_type FROM services'
 Write-Output '@@patches';Q 'SELECT hotfix_id FROM patches'
 Write-Output '@@end'`
+}
 
 type HostInventory struct {
 	Host      string
@@ -43,19 +62,26 @@ type HostInventory struct {
 func collectHost(cfg HostCollectConfig) (*HostInventory, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.Timeout)*time.Second)
 	defer cancel()
+	msi := cfg.MSIURL
+	if msi == "" {
+		msi = defaultOsqueryMSI
+	}
 	res, err := winrsexec.Run(ctx, winrsexec.Params{
 		Host:    cfg.Host,
 		Port:    cfg.Port,
 		CertPEM: cfg.CertPEM,
 		KeyPEM:  cfg.KeyPEM,
-		Command: osqueryPS,
+		Command: buildOsqueryPS(cfg.AutoDeploy, msi),
 		Timeout: time.Duration(cfg.Timeout) * time.Second,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %s", cfg.Host, winrsexec.Classify(err))
 	}
 	if strings.Contains(res.Stdout, "@@ERROR osqueryi not found") {
-		return nil, fmt.Errorf("osqueryi chưa có trên %s — cần deploy osquery (Phase 5)", cfg.Host)
+		if cfg.AutoDeploy {
+			return nil, fmt.Errorf("%s: tự cài osquery thất bại (máy đích cần internet tới pkg.osquery.io)", cfg.Host)
+		}
+		return nil, fmt.Errorf("osqueryi chưa có trên %s — bật auto-deploy hoặc cài osquery thủ công", cfg.Host)
 	}
 	inv, err := parseOsquery(res.Stdout)
 	if err != nil {
@@ -67,11 +93,13 @@ func collectHost(cfg HostCollectConfig) (*HostInventory, error) {
 
 // HostCollectConfig — tham số thu 1 host.
 type HostCollectConfig struct {
-	Host    string
-	Port    int
-	CertPEM []byte
-	KeyPEM  []byte
-	Timeout int
+	Host       string
+	Port       int
+	CertPEM    []byte
+	KeyPEM     []byte
+	Timeout    int
+	AutoDeploy bool
+	MSIURL     string
 }
 
 // parseOsquery tách stdout theo marker "@@<name>" và unmarshal từng section.
