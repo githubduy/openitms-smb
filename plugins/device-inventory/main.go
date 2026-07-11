@@ -17,7 +17,9 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"time"
 
+	"quickwin.dev/pluginmanager/certstore"
 	pluginv1 "quickwin.dev/proto/quickwin/plugin/v1"
 	sdk "quickwin.dev/sdk"
 )
@@ -25,7 +27,8 @@ import (
 const version = "0.1.0"
 
 type plugin struct {
-	db *sql.DB
+	db    *sql.DB
+	certs *certstore.Store
 }
 
 func (p *plugin) Metadata(_ context.Context) (*pluginv1.Metadata, error) {
@@ -137,12 +140,19 @@ func jsonResp(status int32, body any) *pluginv1.HttpResponse {
 }
 
 func main() {
+	certDir := os.Getenv("QUICKWIN_CERTS_DIR")
+	if certDir == "" {
+		certDir = "certs"
+	}
+	certs := certstore.New(certDir, 5*time.Second, nil)
+	certs.Start()
+
 	db, err := openDB()
 	if err != nil {
 		// Không mở được DB → vẫn Serve nhưng Health báo lỗi (core sẽ log). Panic sẽ làm core coi là crash.
 		fmt.Fprintln(os.Stderr, "device-inventory: openDB fail:", err)
-		sdk.Serve(&plugin{db: nil})
+		sdk.Serve(&plugin{db: nil, certs: certs})
 		return
 	}
-	sdk.Serve(&plugin{db: db})
+	sdk.Serve(&plugin{db: db, certs: certs})
 }
