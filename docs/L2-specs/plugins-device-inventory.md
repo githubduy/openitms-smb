@@ -24,14 +24,32 @@ Quyết định kiến trúc (chốt với maintainer):
   (không portable). Prefix `di_` cho namespace rõ, backup chung, zero-privilege-issue.
 - DSN đọc từ `QUICKWIN_CONFIG` (config.json) — plugin kế thừa env của app.
 
-## Routes (Phase 1)
+## Routes
 | Method | Path | Mô tả | Trạng thái |
 |---|---|---|---|
-| GET | `devices` | Danh sách device | ✅ Phase 1 |
-| GET | `device?id=` | Chi tiết (software/services/patches) | ✅ Phase 1 |
-| GET | `changes?id=` | Lịch sử thay đổi | ✅ Phase 1 (rỗng tới Phase 2) |
-| POST | `collect` | Thu osquery/WinRS → upsert + diff | ⏳ Phase 2 |
+| GET | `devices` | Danh sách device (host + switch) | ✅ Phase 1 |
+| GET | `device?id=` | Chi tiết (host: software/services/patches; switch: iface/neighbor/fdb) | ✅ |
+| GET | `changes?id=` | Lịch sử thay đổi | ✅ |
+| POST | `collect` | Thu host qua osquery/WinRS → upsert + diff | ⏳ Phase 2 |
+| POST | `collect-switch` | Thu switch qua SNMP (v2c/v3) → upsert + diff | ✅ Phase 2b |
 | GET | `export?format=` | Export fleet | ⏳ Phase 3 |
+
+## Network switch qua SNMP (Phase 2b)
+Switch/router không chạy osquery → thu qua **SNMP** (thư viện OSS **gosnmp**, BSD). Hỗ trợ **v2c**
+(community) + **v3** (user/auth/priv: MD5/SHA + DES/AES). `device.kind='switch'`.
+
+Thu (full + topology):
+- **System**: sysName/sysDescr/location/contact/uptime; đoán vendor từ sysDescr.
+- **Hardware** (ENTITY-MIB): model/serial/firmware.
+- **Interfaces** (IF-MIB + ifXTable): if_index/name/alias/type/speed/oper/mac.
+- **LLDP neighbors** (LLDP-MIB): local_port ↔ remote_name/port/chassis (sơ đồ kết nối).
+- **MAC/FDB** (BRIDGE-MIB dot1dTpFdb): mac ↔ port (endpoint nào ở cổng nào).
+
+Bảng: `di_switch_iface`, `di_switch_neighbor`, `di_switch_fdb` + cột switch trên `di_device`
+(kind/vendor/model/serial/firmware/location/descr/uptime). Diff số cổng/láng giềng → `di_device_change`.
+
+Verify (Phase 2b): parse PDU unit-test (mac/oid-index/uptime/vendor/operstatus); route `collect-switch`
+xử lý host không SNMP → 502 gọn (timeout). **Thu switch thật cần phần cứng của người dùng.**
 
 ## Schema (`di_*`)
 `di_device` (host UNIQUE, hostname/os/os_version/os_build/domain, first_seen/last_seen/last_status),

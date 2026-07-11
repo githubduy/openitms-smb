@@ -120,6 +120,44 @@ func migrate(db *sql.DB) error {
 			INDEX (device_id),
 			FOREIGN KEY (device_id) REFERENCES di_device(id) ON DELETE CASCADE
 		) ENGINE=InnoDB`,
+		// Network switch (SNMP): cột bổ sung trên di_device + bảng facts riêng.
+		`ALTER TABLE di_device
+			ADD COLUMN IF NOT EXISTS kind     VARCHAR(32) NOT NULL DEFAULT 'host',
+			ADD COLUMN IF NOT EXISTS vendor   VARCHAR(64),
+			ADD COLUMN IF NOT EXISTS model    VARCHAR(255),
+			ADD COLUMN IF NOT EXISTS serial   VARCHAR(255),
+			ADD COLUMN IF NOT EXISTS firmware VARCHAR(255),
+			ADD COLUMN IF NOT EXISTS location VARCHAR(255),
+			ADD COLUMN IF NOT EXISTS descr    TEXT,
+			ADD COLUMN IF NOT EXISTS uptime   VARCHAR(64)`,
+		`CREATE TABLE IF NOT EXISTS di_switch_iface (
+			device_id  BIGINT NOT NULL,
+			if_index   INT NOT NULL,
+			name       VARCHAR(255),
+			alias      VARCHAR(255),
+			iftype     INT,
+			speed_mbps BIGINT,
+			oper       VARCHAR(32),
+			mac        VARCHAR(32),
+			INDEX (device_id),
+			FOREIGN KEY (device_id) REFERENCES di_device(id) ON DELETE CASCADE
+		) ENGINE=InnoDB`,
+		`CREATE TABLE IF NOT EXISTS di_switch_neighbor (
+			device_id   BIGINT NOT NULL,
+			local_port  VARCHAR(128),
+			remote_name VARCHAR(255),
+			remote_port VARCHAR(255),
+			remote_mac  VARCHAR(32),
+			INDEX (device_id),
+			FOREIGN KEY (device_id) REFERENCES di_device(id) ON DELETE CASCADE
+		) ENGINE=InnoDB`,
+		`CREATE TABLE IF NOT EXISTS di_switch_fdb (
+			device_id BIGINT NOT NULL,
+			mac       VARCHAR(32) NOT NULL,
+			port      INT,
+			INDEX (device_id),
+			FOREIGN KEY (device_id) REFERENCES di_device(id) ON DELETE CASCADE
+		) ENGINE=InnoDB`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {

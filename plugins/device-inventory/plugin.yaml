@@ -20,6 +20,10 @@ routes:
     path: collect
     description: Collect inventory from a host via osquery over WinRS
     require_admin: true
+  - method: POST
+    path: collect-switch
+    description: Collect a network switch via SNMP (v2c/v3)
+    require_admin: true
   - method: GET
     path: export
     description: Export the whole fleet inventory (csv|json)

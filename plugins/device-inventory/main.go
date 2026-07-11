@@ -37,6 +37,7 @@ func (p *plugin) Metadata(_ context.Context) (*pluginv1.Metadata, error) {
 			{Method: "GET", Path: "device", Description: "Device detail (facts) by id"},
 			{Method: "GET", Path: "changes", Description: "Change history for a device by id"},
 			{Method: "POST", Path: "collect", Description: "Collect inventory from a host via osquery over WinRS", RequireAdmin: true},
+			{Method: "POST", Path: "collect-switch", Description: "Collect a network switch via SNMP (v2c/v3)", RequireAdmin: true},
 			{Method: "GET", Path: "export", Description: "Export the whole fleet inventory (csv|json)"},
 		},
 		Permissions: []string{"certs:read", "network:outbound", "inventory:read"},
@@ -56,6 +57,8 @@ func (p *plugin) HandleRequest(ctx context.Context, req *pluginv1.HttpRequest) (
 		return p.handleChanges(req)
 	case "collect":
 		return p.handleCollect(ctx, req)
+	case "collect-switch":
+		return p.handleCollectSwitch(req)
 	case "export":
 		return p.handleExport(req)
 	default:

@@ -4,6 +4,7 @@ go 1.24.6
 
 require (
 	github.com/go-sql-driver/mysql v1.8.1
+	github.com/gosnmp/gosnmp v1.37.0
 	quickwin.dev/proto v0.0.0
 	quickwin.dev/sdk v0.0.0
 )

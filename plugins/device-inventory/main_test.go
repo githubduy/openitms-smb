@@ -51,7 +51,8 @@ func TestMetadataMatchesManifest(t *testing.T) {
 	if md.Name != "device-inventory" || md.Version != version {
 		t.Fatalf("name/version sai: %s %s", md.Name, md.Version)
 	}
-	want := map[string]bool{"devices": true, "device": true, "changes": true, "collect": true, "export": true}
+	want := map[string]bool{"devices": true, "device": true, "changes": true,
+		"collect": true, "collect-switch": true, "export": true}
 	if len(md.Routes) != len(want) {
 		t.Fatalf("số route = %d, muốn %d", len(md.Routes), len(want))
 	}

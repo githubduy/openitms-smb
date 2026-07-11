@@ -9,14 +9,35 @@ import (
 type Device struct {
 	ID         int64      `json:"id"`
 	Host       string     `json:"host"`
+	Kind       string     `json:"kind"` // host | switch
 	Hostname   string     `json:"hostname"`
 	OS         string     `json:"os"`
 	OSVersion  string     `json:"os_version"`
 	OSBuild    string     `json:"os_build"`
 	Domain     string     `json:"domain"`
+	Vendor     string     `json:"vendor,omitempty"`
+	Model      string     `json:"model,omitempty"`
+	Serial     string     `json:"serial,omitempty"`
+	Firmware   string     `json:"firmware,omitempty"`
+	Location   string     `json:"location,omitempty"`
+	Uptime     string     `json:"uptime,omitempty"`
 	FirstSeen  *time.Time `json:"first_seen,omitempty"`
 	LastSeen   *time.Time `json:"last_seen,omitempty"`
 	LastStatus string     `json:"last_status"`
+}
+
+// cột SELECT chung cho di_device (thứ tự khớp scanDevice).
+const deviceCols = `id, host, IFNULL(kind,'host'), IFNULL(hostname,''), IFNULL(os,''),
+	IFNULL(os_version,''), IFNULL(os_build,''), IFNULL(domain,''), IFNULL(vendor,''),
+	IFNULL(model,''), IFNULL(serial,''), IFNULL(firmware,''), IFNULL(location,''),
+	IFNULL(uptime,''), first_seen, last_seen, IFNULL(last_status,'')`
+
+func scanDevice(s interface {
+	Scan(...any) error
+}, d *Device) error {
+	return s.Scan(&d.ID, &d.Host, &d.Kind, &d.Hostname, &d.OS, &d.OSVersion, &d.OSBuild, &d.Domain,
+		&d.Vendor, &d.Model, &d.Serial, &d.Firmware, &d.Location, &d.Uptime,
+		&d.FirstSeen, &d.LastSeen, &d.LastStatus)
 }
 
 type Software struct {
@@ -40,15 +61,16 @@ type Change struct {
 
 type DeviceDetail struct {
 	Device
-	Software []Software `json:"software"`
-	Services []Service  `json:"services"`
-	Patches  []Patch    `json:"patches"`
+	Software  []Software       `json:"software"`
+	Services  []Service        `json:"services"`
+	Patches   []Patch          `json:"patches"`
+	Ifaces    []SwitchIface    `json:"interfaces,omitempty"`
+	Neighbors []SwitchNeighbor `json:"neighbors,omitempty"`
+	FDB       []SwitchFDB      `json:"fdb,omitempty"`
 }
 
 func listDevices(db *sql.DB) ([]Device, error) {
-	rows, err := db.Query(`SELECT id, host, IFNULL(hostname,''), IFNULL(os,''), IFNULL(os_version,''),
-		IFNULL(os_build,''), IFNULL(domain,''), first_seen, last_seen, IFNULL(last_status,'')
-		FROM di_device ORDER BY host`)
+	rows, err := db.Query(`SELECT ` + deviceCols + ` FROM di_device ORDER BY host`)
 	if err != nil {
 		return nil, err
 	}
@@ -56,8 +78,7 @@ func listDevices(db *sql.DB) ([]Device, error) {
 	out := []Device{}
 	for rows.Next() {
 		var d Device
-		if err := rows.Scan(&d.ID, &d.Host, &d.Hostname, &d.OS, &d.OSVersion, &d.OSBuild,
-			&d.Domain, &d.FirstSeen, &d.LastSeen, &d.LastStatus); err != nil {
+		if err := scanDevice(rows, &d); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
@@ -67,14 +88,16 @@ func listDevices(db *sql.DB) ([]Device, error) {
 
 func getDevice(db *sql.DB, id int64) (*DeviceDetail, error) {
 	var d Device
-	err := db.QueryRow(`SELECT id, host, IFNULL(hostname,''), IFNULL(os,''), IFNULL(os_version,''),
-		IFNULL(os_build,''), IFNULL(domain,''), first_seen, last_seen, IFNULL(last_status,'')
-		FROM di_device WHERE id=?`, id).Scan(&d.ID, &d.Host, &d.Hostname, &d.OS, &d.OSVersion,
-		&d.OSBuild, &d.Domain, &d.FirstSeen, &d.LastSeen, &d.LastStatus)
-	if err != nil {
+	if err := scanDevice(db.QueryRow(`SELECT `+deviceCols+` FROM di_device WHERE id=?`, id), &d); err != nil {
 		return nil, err
 	}
 	det := &DeviceDetail{Device: d, Software: []Software{}, Services: []Service{}, Patches: []Patch{}}
+	if d.Kind == "switch" {
+		if err := loadSwitchFacts(db, id, det); err != nil {
+			return nil, err
+		}
+		return det, nil
+	}
 
 	swRows, err := db.Query(`SELECT name, IFNULL(version,'') FROM di_device_software WHERE device_id=? ORDER BY name`, id)
 	if err != nil {
