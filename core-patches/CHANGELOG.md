@@ -3,6 +3,15 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-11 — 0029-template-script-editor.patch
+**WHY:** SMB IT chưa có script trong repo — cần tạo/sửa file .yml/.sh/.ps1 ngay trên UI và
+commit vào git local, khỏi phải clone repo + dùng git ngoài.
+**WHAT:** Template form thêm nút "New/Edit file" cạnh ô script filename → mở editor codemirror,
+điền sample theo app type (ansible/bash/powershell/python/terraform); Lưu → POST /gitea/file →
+commit vào repo local (Gitea). Backend `quickwin_gitea_commit.go` (hook mỏng) + route GET/POST
+`/gitea/file`; logic Gitea Contents API (`GetFile`/`PutFile`) ở giteamanager ngoài cây upstream.
+Test: gitea-manager GetFile/PutFile (create→POST, update→PUT kèm sha). Spec 0029.
+
 ## 2026-07-09 — 0028-inventory-export-detail.patch
 **WHY:** audit fleet cần CSV chi tiết (1 dòng/mục) thay vì chỉ đếm — để lọc/pivot trong Excel.
 **WHAT:** ExportWinRSInventory nhận `?detail=software|services|tasks|hotfixes` → CSV long-format

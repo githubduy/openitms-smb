@@ -1,0 +1,449 @@
+# PATCH: 0029-template-script-editor
+# WHY: User (SMB IT) chua co script trong repo -> can tao/sua file .yml/.sh/.ps1 ngay tren UI
+#      va commit vao git local, khong phai clone repo + dung git ngoai.
+# WHAT: Template form them nut "New/Edit file" o o script filename -> mo editor (codemirror),
+#       dien sample theo app type; Luu -> POST /gitea/file -> commit vao repo local (Gitea).
+#       Backend hook mong; logic Gitea Contents API o giteamanager ngoai cay upstream.
+# SPEC: docs/L2-specs/core-patches/0029-template-script-editor.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/quickwin_gitea_commit.go b/api/projects/quickwin_gitea_commit.go
+new file mode 100644
+index 0000000..ad6240e
+--- /dev/null
++++ b/api/projects/quickwin_gitea_commit.go
+@@ -0,0 +1,162 @@
++// QUICKWIN PATCH 0029 — tạo/sửa script file trực tiếp trên UI → commit vào repo local (Gitea).
++// Template form cho phép "New file": mở editor, điền sample, Lưu → file được commit vào git.
++// Hook mỏng: logic thật (Gitea Contents API) nằm ở package giteamanager ngoài cây upstream.
++// Spec: docs/L2-specs/core-patches/0029-template-script-editor.md
++package projects
++
++import (
++	"context"
++	"encoding/json"
++	"net/http"
++	"net/url"
++	"os"
++	"strings"
++	"time"
++
++	"github.com/semaphoreui/semaphore/api/helpers"
++	"github.com/semaphoreui/semaphore/db"
++
++	giteamanager "quickwin.dev/gitea-manager"
++)
++
++// giteaRepoRef — thông tin đủ để gọi Gitea Contents API cho 1 repository local của project.
++type giteaRepoRef struct {
++	org    string
++	repo   string
++	branch string
++	token  string
++}
++
++// resolveLocalGiteaRepo tìm repository (theo id) của project, xác nhận là repo local Gitea,
++// và tách org/repo/branch/token từ GitURL. ok=false nếu không phải repo local Gitea.
++func resolveLocalGiteaRepo(store db.Store, project db.Project, repoID int) (giteaRepoRef, bool) {
++	addr := os.Getenv("QUICKWIN_GITEA_ADDR")
++	repos, err := store.GetRepositories(project.ID, db.RetrieveQueryParams{})
++	if err != nil {
++		return giteaRepoRef{}, false
++	}
++	for _, rp := range repos {
++		if rp.ID != repoID {
++			continue
++		}
++		u, perr := url.Parse(rp.GitURL)
++		if perr != nil {
++			return giteaRepoRef{}, false
++		}
++		isGitea := (addr != "" && u.Host == addr) || strings.Contains(rp.Name, "Gitea")
++		if !isGitea {
++			return giteaRepoRef{}, false
++		}
++		// path dạng /<org>/<repo>.git
++		parts := strings.Split(strings.Trim(u.Path, "/"), "/")
++		if len(parts) < 2 {
++			return giteaRepoRef{}, false
++		}
++		token := os.Getenv("QUICKWIN_GITEA_TOKEN")
++		if u.User != nil { // token nhúng trong GitURL (0008) — ưu tiên
++			token = u.User.Username()
++		}
++		branch := rp.GitBranch
++		if branch == "" {
++			branch = "main"
++		}
++		return giteaRepoRef{
++			org:    parts[0],
++			repo:   strings.TrimSuffix(parts[1], ".git"),
++			branch: branch,
++			token:  token,
++		}, true
++	}
++	return giteaRepoRef{}, false
++}
++
++func giteaClientFor(ref giteaRepoRef) *giteamanager.Client {
++	addr := os.Getenv("QUICKWIN_GITEA_ADDR")
++	return giteamanager.NewClient("http://"+addr, ref.token)
++}
++
++// GetTemplateScriptFile trả nội dung 1 file trong repo local để edit.
++// GET ?repo_id=<id>&path=<filename> → {exists, content}.
++func GetTemplateScriptFile(w http.ResponseWriter, r *http.Request) {
++	project := helpers.GetFromContext(r, "project").(db.Project)
++	repoID := intFromQuery(r, "repo_id")
++	path := strings.TrimSpace(r.URL.Query().Get("path"))
++	if repoID == 0 || path == "" {
++		helpers.WriteJSON(w, http.StatusBadRequest, map[string]any{"error": "repo_id và path bắt buộc"})
++		return
++	}
++	ref, ok := resolveLocalGiteaRepo(helpers.Store(r), project, repoID)
++	if !ok {
++		helpers.WriteJSON(w, http.StatusOK, map[string]any{"local": false})
++		return
++	}
++	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
++	defer cancel()
++	content, _, exists, err := giteaClientFor(ref).GetFile(ctx, ref.org, ref.repo, ref.branch, path)
++	if err != nil {
++		helpers.WriteError(w, err)
++		return
++	}
++	helpers.WriteJSON(w, http.StatusOK, map[string]any{
++		"local":   true,
++		"exists":  exists,
++		"content": content,
++		"branch":  ref.branch,
++	})
++}
++
++// CommitTemplateScriptFile tạo/sửa file rồi commit vào repo local.
++// POST {repository_id, filename, content, message?} → {ok, path, commit_url}.
++func CommitTemplateScriptFile(w http.ResponseWriter, r *http.Request) {
++	project := helpers.GetFromContext(r, "project").(db.Project)
++	var body struct {
++		RepositoryID int    `json:"repository_id"`
++		Filename     string `json:"filename"`
++		Content      string `json:"content"`
++		Message      string `json:"message"`
++	}
++	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
++		helpers.WriteJSON(w, http.StatusBadRequest, map[string]any{"error": "body không hợp lệ"})
++		return
++	}
++	body.Filename = strings.TrimSpace(strings.TrimLeft(body.Filename, "/"))
++	if body.RepositoryID == 0 || body.Filename == "" {
++		helpers.WriteJSON(w, http.StatusBadRequest, map[string]any{"error": "repository_id và filename bắt buộc"})
++		return
++	}
++	ref, ok := resolveLocalGiteaRepo(helpers.Store(r), project, body.RepositoryID)
++	if !ok {
++		helpers.WriteJSON(w, http.StatusBadRequest, map[string]any{
++			"error": "repository không phải repo local (Gitea) — chỉ commit trực tiếp được vào repo local",
++		})
++		return
++	}
++	msg := strings.TrimSpace(body.Message)
++	if msg == "" {
++		msg = "Update " + body.Filename + " via OpenITMS"
++	}
++	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
++	defer cancel()
++	commitURL, err := giteaClientFor(ref).PutFile(ctx, ref.org, ref.repo, ref.branch, body.Filename, body.Content, msg)
++	if err != nil {
++		helpers.WriteError(w, err)
++		return
++	}
++	helpers.WriteJSON(w, http.StatusOK, map[string]any{
++		"ok":         true,
++		"path":       body.Filename,
++		"branch":     ref.branch,
++		"commit_url": commitURL,
++	})
++}
++
++func intFromQuery(r *http.Request, key string) int {
++	var n int
++	for _, ch := range r.URL.Query().Get(key) {
++		if ch < '0' || ch > '9' {
++			return 0
++		}
++		n = n*10 + int(ch-'0')
++	}
++	return n
++}
+diff --git a/api/router.go b/api/router.go
+index 4c7f2d5..52513b2 100644
+--- a/api/router.go
++++ b/api/router.go
+@@ -318,6 +318,10 @@ func Route(
+ 	// QUICKWIN PATCH 0012 — xem repo local (Gitea) của project (URL đã strip token)
+ 	projectUserAPI.Path("/gitea/repo").HandlerFunc(projects.GetProjectGiteaRepo).Methods("GET", "HEAD")
+ 
++	// QUICKWIN PATCH 0029 — tạo/sửa script file trực tiếp → commit vào repo local (Gitea)
++	projectUserAPI.Path("/gitea/file").HandlerFunc(projects.GetTemplateScriptFile).Methods("GET", "HEAD")
++	projectUserAPI.Path("/gitea/file").HandlerFunc(projects.CommitTemplateScriptFile).Methods("POST")
++
+ 	// QUICKWIN PATCH 0014 — tải script chuẩn bị endpoint (winrs|ssh)
+ 	projectUserAPI.Path("/endpoint/enroll-script/{kind}").HandlerFunc(projects.GetEnrollScript).Methods("GET", "HEAD")
+ 
+diff --git a/web/src/components/TemplateForm.vue b/web/src/components/TemplateForm.vue
+index 41d82d7..603d3db 100644
+--- a/web/src/components/TemplateForm.vue
++++ b/web/src/components/TemplateForm.vue
+@@ -86,6 +86,60 @@
+       </v-alert>
+     </v-dialog>
+ 
++    <v-dialog v-model="fileEditor.show" width="820" persistent scrollable>
++      <v-card>
++        <v-card-title class="pb-2">
++          <v-icon color="primary" class="mr-2">mdi-file-edit-outline</v-icon>
++          {{ fileEditor.exists ? $t('scriptEditorEditTitle') : $t('scriptEditorNewTitle') }}
++        </v-card-title>
++        <v-divider></v-divider>
++        <v-card-text class="pt-4">
++          <v-alert v-if="fileEditor.error" type="error" dense text class="mb-3">
++            {{ fileEditor.error }}
++          </v-alert>
++          <v-alert
++            v-if="!fileEditor.local && !fileEditor.loading"
++            type="warning" dense text class="mb-3"
++          >
++            {{ $t('scriptEditorNotLocal') }}
++          </v-alert>
++          <v-text-field
++            v-model.trim="fileEditor.filename"
++            :label="$t('scriptEditorFilename')"
++            :placeholder="$t('exampleSiteyml')"
++            outlined dense
++            :disabled="fileEditor.saving"
++            class="mb-2"
++          ></v-text-field>
++          <div class="caption grey--text mb-1">
++            {{ $t('scriptEditorContent') }}
++            <span v-if="fileEditor.branch"> — branch <code>{{ fileEditor.branch }}</code></span>
++          </div>
++          <codemirror
++            v-model="fileEditor.content"
++            :options="fileEditorCmOptions"
++            :style="{ border: '1px solid lightgray', height: '340px' }"
++          />
++        </v-card-text>
++        <v-divider></v-divider>
++        <v-card-actions>
++          <v-btn text :disabled="fileEditor.saving" @click="fileEditor.show = false">
++            {{ $t('cancel') }}
++          </v-btn>
++          <v-spacer></v-spacer>
++          <v-btn
++            color="primary"
++            :loading="fileEditor.saving"
++            :disabled="fileEditor.saving || !fileEditor.local || !fileEditor.filename"
++            @click="saveFileEditor"
++          >
++            <v-icon left small>mdi-source-commit</v-icon>
++            {{ $t('scriptEditorSaveCommit') }}
++          </v-btn>
++        </v-card-actions>
++      </v-card>
++    </v-dialog>
++
+     <v-alert
+       :value="formError"
+       color="error"
+@@ -175,7 +229,20 @@
+           :disabled="formSaving"
+           :placeholder="$t('exampleSiteyml')"
+           v-if="needField('playbook')"
+-        ></v-text-field>
++        >
++          <template v-slot:append-outer>
++            <v-btn
++              small
++              outlined
++              color="primary"
++              :disabled="formSaving || !item.repository_id"
++              @click="openFileEditor"
++            >
++              <v-icon left small>mdi-file-edit-outline</v-icon>
++              {{ $t('scriptEditorBtn') }}
++            </v-btn>
++          </template>
++        </v-text-field>
+ 
+         <v-autocomplete
+           v-model="item.inventory_id"
+@@ -536,8 +603,12 @@ import axios from 'axios';
+ import ItemFormBase from '@/components/ItemFormBase';
+ import 'codemirror/lib/codemirror.css';
+ import 'codemirror/mode/vue/vue.js';
++import 'codemirror/mode/yaml/yaml.js';
++import 'codemirror/mode/shell/shell.js';
++import 'codemirror/mode/python/python.js';
+ import 'codemirror/addon/lint/json-lint.js';
+ import 'codemirror/addon/display/placeholder.js';
++import { getErrorMessage } from '@/lib/error';
+ import ArgsPicker from '@/components/ArgsPicker.vue';
+ import TemplateVaults from '@/components/TemplateVaults.vue';
+ import { TEMPLATE_TYPE_ICONS, TEMPLATE_TYPE_TITLES } from '@/lib/constants';
+@@ -592,6 +663,17 @@ export default {
+         lint: true,
+         indentWithTabs: false,
+       },
++      fileEditor: {
++        show: false,
++        loading: false,
++        saving: false,
++        local: true,
++        exists: false,
++        filename: '',
++        content: '',
++        branch: '',
++        error: null,
++      },
+       item: {
+         task_params: {},
+       },
+@@ -658,6 +740,24 @@ export default {
+       },
+     },
+ 
++    fileEditorCmOptions() {
++      const modeByApp = {
++        ansible: 'text/x-yaml',
++        bash: 'text/x-sh',
++        powershell: 'text/x-sh',
++        python: 'text/x-python',
++        terraform: 'text/x-sh',
++        tofu: 'text/x-sh',
++      };
++      return {
++        tabSize: 2,
++        mode: modeByApp[this.app] || 'text/plain',
++        lineNumbers: true,
++        line: true,
++        indentWithTabs: false,
++      };
++    },
++
+     repositoryId() {
+       return this.item?.repository_id;
+     },
+@@ -740,6 +840,94 @@ export default {
+   },
+ 
+   methods: {
++    defaultFilenameForApp() {
++      switch (this.app) {
++        case 'ansible': return 'site.yml';
++        case 'bash': return 'script.sh';
++        case 'powershell': return 'script.ps1';
++        case 'python': return 'main.py';
++        case 'terraform':
++        case 'tofu': return 'main.tf';
++        default: return 'script.sh';
++      }
++    },
++
++    sampleContentForApp() {
++      switch (this.app) {
++        case 'ansible':
++          return '---\n- name: Sample playbook\n  hosts: all\n  become: true\n  tasks:\n'
++            + '    - name: Ping host\n      ansible.builtin.ping:\n';
++        case 'powershell':
++          return '# PowerShell script — chay boi OpenITMS\n'
++            + '$ErrorActionPreference = \'Stop\'\n\nWrite-Host "Hello from OpenITMS"\n';
++        case 'python':
++          return '#!/usr/bin/env python3\n"""Sample script — run by OpenITMS."""\n\n\n'
++            + 'def main():\n    print("Hello from OpenITMS")\n\n\n'
++            + 'if __name__ == "__main__":\n    main()\n';
++        case 'terraform':
++        case 'tofu':
++          return '# Sample Terraform/OpenTofu\nterraform {\n  required_version = ">= 1.0"\n}\n\n'
++            + 'output "hello" {\n  value = "Hello from OpenITMS"\n}\n';
++        default:
++          return '#!/usr/bin/env bash\n# Sample script — run by OpenITMS\nset -euo pipefail\n\n'
++            + 'echo "Hello from OpenITMS"\n';
++      }
++    },
++
++    async openFileEditor() {
++      this.fileEditor.error = null;
++      this.fileEditor.exists = false;
++      this.fileEditor.local = true;
++      this.fileEditor.branch = '';
++      this.fileEditor.filename = (this.item.playbook || '').trim() || this.defaultFilenameForApp();
++      this.fileEditor.content = this.sampleContentForApp();
++      this.fileEditor.show = true;
++      this.fileEditor.loading = true;
++      try {
++        const { data } = await axios({
++          method: 'get',
++          url: `/api/project/${this.projectId}/gitea/file`,
++          params: { repo_id: this.item.repository_id, path: this.fileEditor.filename },
++          responseType: 'json',
++        });
++        this.fileEditor.local = data.local !== false;
++        if (data.branch) {
++          this.fileEditor.branch = data.branch;
++        }
++        if (data.local && data.exists) {
++          this.fileEditor.exists = true;
++          this.fileEditor.content = data.content;
++        }
++      } catch (err) {
++        this.fileEditor.error = getErrorMessage(err);
++      } finally {
++        this.fileEditor.loading = false;
++      }
++    },
++
++    async saveFileEditor() {
++      this.fileEditor.error = null;
++      this.fileEditor.saving = true;
++      try {
++        const { data } = await axios({
++          method: 'post',
++          url: `/api/project/${this.projectId}/gitea/file`,
++          responseType: 'json',
++          data: {
++            repository_id: this.item.repository_id,
++            filename: this.fileEditor.filename,
++            content: this.fileEditor.content,
++          },
++        });
++        this.item.playbook = data.path; // đặt filename vào form
++        this.fileEditor.show = false;
++      } catch (err) {
++        this.fileEditor.error = getErrorMessage(err);
++      } finally {
++        this.fileEditor.saving = false;
++      }
++    },
++
+     async loadBranches() {
+       if (this.repositoryId == null) {
+         return;
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index be1a154..d6bc07f 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -317,6 +317,14 @@ export default {
+   autorun: 'Autorun',
+   playbookFilename: 'Path to playbook file *',
+   exampleSiteyml: 'Example: deploy/site.yml',
++  scriptEditorBtn: 'New / Edit file',
++  scriptEditorNewTitle: 'New script file',
++  scriptEditorEditTitle: 'Edit script file',
++  scriptEditorFilename: 'File name (path in repo)',
++  scriptEditorContent: 'Content',
++  scriptEditorSaveCommit: 'Save & commit',
++  scriptEditorNotLocal: 'This repository is not the local (Gitea) repo, so files cannot be '
++    + 'committed directly from here. Select the "Local (Gitea)" repository to edit files inline.',
+   inventory2: 'Inventory *',
+   repository: 'Repository',
+   environment3: 'Variable Groups *',

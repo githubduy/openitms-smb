@@ -2,6 +2,7 @@ package giteamanager
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -95,6 +96,90 @@ func TestCreateRepo_NewAndIdempotent(t *testing.T) {
 	r2, err := c.CreateRepo(context.Background(), "openitms", "host", true)
 	if err != nil || r2.FullName != "openitms/host" {
 		t.Fatalf("idempotent create fail: %+v err=%v", r2, err)
+	}
+}
+
+func TestGetFile_NotFoundAndFound(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/repos/openitms/host/contents/site.yml" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"content": base64.StdEncoding.EncodeToString([]byte("hello: world\n")),
+				"sha":     "abc123",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "t")
+
+	content, sha, exists, err := c.GetFile(context.Background(), "openitms", "host", "main", "site.yml")
+	if err != nil || !exists || content != "hello: world\n" || sha != "abc123" {
+		t.Fatalf("GetFile found sai: content=%q sha=%q exists=%v err=%v", content, sha, exists, err)
+	}
+	_, _, exists, err = c.GetFile(context.Background(), "openitms", "host", "main", "missing.sh")
+	if err != nil || exists {
+		t.Fatalf("GetFile missing phải exists=false không lỗi: exists=%v err=%v", exists, err)
+	}
+}
+
+func TestPutFile_CreateThenUpdate(t *testing.T) {
+	fileExists := false
+	var lastMethod string
+	var lastBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := "/api/v1/repos/openitms/host/contents/deploy/site.yml"
+		if r.URL.Path != p {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			if !fileExists {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"content": base64.StdEncoding.EncodeToString([]byte("old")),
+				"sha":     "sha-old",
+			})
+		case http.MethodPost, http.MethodPut:
+			lastMethod = r.Method
+			json.NewDecoder(r.Body).Decode(&lastBody)
+			fileExists = true
+			w.WriteHeader(http.StatusCreated)
+			json.NewEncoder(w).Encode(map[string]any{
+				"commit": map[string]any{"html_url": "http://gitea/commit/1"},
+			})
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "t")
+	ctx := context.Background()
+
+	// lần 1: file chưa có → POST (create), không kèm sha
+	url1, err := c.PutFile(ctx, "openitms", "host", "main", "deploy/site.yml", "content-1", "msg1")
+	if err != nil || lastMethod != http.MethodPost || url1 != "http://gitea/commit/1" {
+		t.Fatalf("create fail: method=%s url=%q err=%v", lastMethod, url1, err)
+	}
+	if _, hasSHA := lastBody["sha"]; hasSHA {
+		t.Fatalf("create không được kèm sha, body=%v", lastBody)
+	}
+	if got, _ := lastBody["content"].(string); got != base64.StdEncoding.EncodeToString([]byte("content-1")) {
+		t.Fatalf("content base64 sai: %q", got)
+	}
+
+	// lần 2: file đã có → PUT (update) kèm sha
+	if _, err := c.PutFile(ctx, "openitms", "host", "main", "deploy/site.yml", "content-2", "msg2"); err != nil {
+		t.Fatalf("update fail: %v", err)
+	}
+	if lastMethod != http.MethodPut {
+		t.Fatalf("update phải dùng PUT, got %s", lastMethod)
+	}
+	if lastBody["sha"] != "sha-old" {
+		t.Fatalf("update phải kèm sha cũ, got %v", lastBody["sha"])
 	}
 }
 

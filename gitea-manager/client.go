@@ -6,10 +6,12 @@ package giteamanager
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -120,6 +122,82 @@ func (c *Client) GetRepo(ctx context.Context, org, name string) (*Repo, error) {
 		return nil, apiErr("GetRepo", resp)
 	}
 	return decodeRepo(resp)
+}
+
+// FileContent — nội dung 1 file trả về từ Gitea Contents API (content = base64).
+type fileContent struct {
+	Content string `json:"content"`
+	SHA     string `json:"sha"`
+}
+
+// GetFile đọc 1 file trong repo tại branch. exists=false nếu file chưa có (404).
+// Trả nội dung đã giải base64 + sha (cần cho update).
+func (c *Client) GetFile(ctx context.Context, org, repo, branch, path string) (content, sha string, exists bool, err error) {
+	p := "/api/v1/repos/" + org + "/" + repo + "/contents/" + escapePath(path) + "?ref=" + url.QueryEscape(branch)
+	resp, err := c.do(ctx, http.MethodGet, p, nil)
+	if err != nil {
+		return "", "", false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return "", "", false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", "", false, apiErr("GetFile", resp)
+	}
+	var fc fileContent
+	if err := json.NewDecoder(resp.Body).Decode(&fc); err != nil {
+		return "", "", false, err
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(fc.Content, "\n", ""))
+	if err != nil {
+		return "", "", false, err
+	}
+	return string(raw), fc.SHA, true, nil
+}
+
+// PutFile tạo mới hoặc cập nhật 1 file (1 commit). Tự phát hiện file đã có để chọn
+// POST (tạo) / PUT (update, kèm sha). Trả HTML URL của commit để UI mở xem.
+func (c *Client) PutFile(ctx context.Context, org, repo, branch, path, content, message string) (htmlURL string, err error) {
+	_, sha, exists, err := c.GetFile(ctx, org, repo, branch, path)
+	if err != nil {
+		return "", err
+	}
+	body := map[string]any{
+		"content": base64.StdEncoding.EncodeToString([]byte(content)),
+		"message": message,
+		"branch":  branch,
+	}
+	method := http.MethodPost
+	if exists {
+		method = http.MethodPut
+		body["sha"] = sha
+	}
+	p := "/api/v1/repos/" + org + "/" + repo + "/contents/" + escapePath(path)
+	resp, err := c.do(ctx, method, p, body)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		return "", apiErr("PutFile", resp)
+	}
+	var out struct {
+		Commit struct {
+			HTMLURL string `json:"html_url"`
+		} `json:"commit"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return out.Commit.HTMLURL, nil
+}
+
+// escapePath escape từng segment của path để dùng trong URL (giữ dấu '/').
+func escapePath(p string) string {
+	segs := strings.Split(strings.TrimLeft(p, "/"), "/")
+	for i, s := range segs {
+		segs[i] = url.PathEscape(s)
+	}
+	return strings.Join(segs, "/")
 }
 
 func decodeRepo(resp *http.Response) (*Repo, error) {
