@@ -3,6 +3,15 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-11 — 0035-device-inventory-ui.patch
+**WHY:** Plugin `device-inventory` (CMDB) chưa có UI — frontend Semaphore không có cơ chế render
+plugin UI (`menu_title` chưa ai đọc). User cần thấy device/asset (host + switch).
+**WHAT:** View "Devices" (`DeviceInventory.vue`) gọi API động `/api/plugins/device-inventory`
+(devices/device/changes/collect-switch): bảng device (host/switch), detail theo kind (host→software/
+services/patches; switch→interfaces/neighbors/fdb), tab Changes, form "Collect switch (SNMP)" v2c/v3.
++nav item "Devices" + tooltip (App.vue), +route (router). Logic ở plugin, core chỉ là vỏ UI.
++i18n dev*/tooltipDevices (en+vi). Verify E2E: menu Devices hiện, list rỗng, dialog collect. Spec 0035.
+
 ## 2026-07-11 — 0034-repo-file-browser.patch
 **WHY:** Ở ô script filename user phải gõ tay tên file, không biết repo có gì; cần duyệt cây thư mục
 git để chọn file + tạo mới thư mục/file ngay đó.

@@ -1,0 +1,509 @@
+# PATCH: 0035-device-inventory-ui
+# WHY: Plugin device-inventory (CMDB) chua co UI — frontend Semaphore khong co co che render plugin
+#      UI (menu_title chua ai doc). Can view de user THAY device/asset (host + switch).
+# WHAT: Core patch them view "Devices" (DeviceInventory.vue) goi API dong /api/plugins/device-inventory
+#       (list/detail/changes/collect-switch); +nav item + tooltip (App.vue); +route (router). Logic van
+#       o plugin, core chi la vo UI. +i18n dev*/tooltipDevices (en+vi).
+# SPEC: docs/L2-specs/core-patches/0035-device-inventory-ui.md
+# BASELINE: v2.18.16
+#
+diff --git a/web/src/App.vue b/web/src/App.vue
+index d5e570d..4760598 100644
+--- a/web/src/App.vue
++++ b/web/src/App.vue
+@@ -1223,6 +1223,13 @@ export default {
+             to: `${base}/network_discovery`,
+             testId: 'sidebar-network-discovery',
+           },
++          {
++            key: 'devices',
++            icon: 'mdi-devices',
++            title: this.$t('devicesTitle'),
++            to: `${base}/devices`,
++            testId: 'sidebar-devices',
++          },
+           {
+             key: 'environment',
+             icon: 'mdi-code-braces',
+@@ -1290,6 +1297,7 @@ export default {
+         inventory: this.$t('tooltipInventory'),
+         winrs_console: this.$t('tooltipWinrsConsole'),
+         network_discovery: this.$t('tooltipNetworkDiscovery'),
++        devices: this.$t('tooltipDevices'),
+         environment: this.$t('tooltipEnvironment'),
+         keys: this.$t('tooltipKeys'),
+         repositories: this.$t('tooltipRepositories'),
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index cf45c60..326ba06 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -24,6 +24,30 @@ export default {
+     + 'as the first step of a build → deploy pipeline.',
+   tooltipTemplateDeploy: 'Deploys the artifact produced by a Build template to your target machines. '
+     + 'Links to a Build template as its source.',
++  tooltipDevices: 'Device/asset inventory (CMDB): Windows/Linux hosts (via osquery) and network '
++    + 'switches (via SNMP), with hardware, software, ports and change history.',
++
++  // QUICKWIN — Device inventory (CMDB)
++  devicesTitle: 'Devices (CMDB)',
++  devicesHint: 'Asset inventory collected agentlessly: hosts via osquery (WinRS), network switches '
++    + 'via SNMP. Click a device to see details and change history.',
++  refresh: 'Refresh',
++  devCollectSwitch: 'Collect a switch (SNMP)',
++  devCollect: 'Collect',
++  devHost: 'Host / IP',
++  devName: 'Name',
++  devVendorModel: 'Vendor / Model',
++  devOsFw: 'OS / Firmware',
++  devLastSeen: 'Last seen',
++  devEmpty: 'No devices yet. Collect a switch (SNMP) or a host (osquery) to populate the inventory.',
++  devTabIfaces: 'Interfaces',
++  devTabNeighbors: 'Neighbors (LLDP)',
++  devTabFdb: 'MAC table',
++  devTabSoftware: 'Software',
++  devTabServices: 'Services',
++  devTabPatches: 'Patches',
++  devTabChanges: 'Changes',
++  devNoChanges: 'No changes recorded yet.',
+ 
+   // QUICKWIN — Network Discovery
+   note: 'Note',
+diff --git a/web/src/lang/vi.js b/web/src/lang/vi.js
+index b466a1d..8ebe0bd 100644
+--- a/web/src/lang/vi.js
++++ b/web/src/lang/vi.js
+@@ -24,6 +24,30 @@ export default {
+     + 'đầu của quy trình build → deploy.',
+   tooltipTemplateDeploy: 'Triển khai artifact do template Build tạo ra xuống các máy đích. Liên kết '
+     + 'tới một template Build làm nguồn.',
++  tooltipDevices: 'Inventory thiết bị/tài sản (CMDB): máy Windows/Linux (qua osquery) và switch mạng '
++    + '(qua SNMP), kèm phần cứng, phần mềm, cổng và lịch sử thay đổi.',
++
++  // QUICKWIN — Device inventory (CMDB)
++  devicesTitle: 'Thiết bị (CMDB)',
++  devicesHint: 'Inventory tài sản thu thập agentless: máy chủ qua osquery (WinRS), switch mạng qua '
++    + 'SNMP. Bấm vào thiết bị để xem chi tiết và lịch sử thay đổi.',
++  refresh: 'Làm mới',
++  devCollectSwitch: 'Thu switch (SNMP)',
++  devCollect: 'Thu thập',
++  devHost: 'Host / IP',
++  devName: 'Tên',
++  devVendorModel: 'Hãng / Model',
++  devOsFw: 'OS / Firmware',
++  devLastSeen: 'Lần cuối',
++  devEmpty: 'Chưa có thiết bị. Thu 1 switch (SNMP) hoặc 1 máy chủ (osquery) để điền inventory.',
++  devTabIfaces: 'Cổng',
++  devTabNeighbors: 'Láng giềng (LLDP)',
++  devTabFdb: 'Bảng MAC',
++  devTabSoftware: 'Phần mềm',
++  devTabServices: 'Dịch vụ',
++  devTabPatches: 'Bản vá',
++  devTabChanges: 'Thay đổi',
++  devNoChanges: 'Chưa ghi nhận thay đổi.',
+ 
+   // QUICKWIN — Network Discovery
+   note: 'Ghi chú',
+diff --git a/web/src/router/index.js b/web/src/router/index.js
+index 9065687..e109ff0 100644
+--- a/web/src/router/index.js
++++ b/web/src/router/index.js
+@@ -18,6 +18,7 @@ import Environment from '../views/project/Environment.vue';
+ import Inventory from '../views/project/Inventory.vue';
+ import WinRSConsole from '../views/project/WinRSConsole.vue';
+ import NetworkDiscovery from '../views/project/NetworkDiscovery.vue';
++import DeviceInventory from '../views/project/DeviceInventory.vue';
+ import Keys from '../views/project/Keys.vue';
+ import Repositories from '../views/project/Repositories.vue';
+ import Team from '../views/project/Team.vue';
+@@ -138,6 +139,10 @@ const routes = [
+     path: '/project/:projectId/network_discovery',
+     component: NetworkDiscovery,
+   },
++  {
++    path: '/project/:projectId/devices',
++    component: DeviceInventory,
++  },
+   {
+     path: '/project/:projectId/integrations',
+     component: Integrations,
+diff --git a/web/src/views/project/DeviceInventory.vue b/web/src/views/project/DeviceInventory.vue
+new file mode 100644
+index 0000000..6b7f2c3
+--- /dev/null
++++ b/web/src/views/project/DeviceInventory.vue
+@@ -0,0 +1,375 @@
++<template>
++  <div>
++    <v-toolbar flat>
++      <v-app-bar-nav-icon @click="showDrawer()"></v-app-bar-nav-icon>
++      <v-toolbar-title>
++        <v-icon color="primary" class="mr-2">mdi-devices</v-icon>
++        {{ $t('devicesTitle') }}
++      </v-toolbar-title>
++      <v-spacer></v-spacer>
++      <v-btn small text :loading="loading" @click="loadDevices">
++        <v-icon left small>mdi-refresh</v-icon>{{ $t('refresh') }}
++      </v-btn>
++      <v-btn small color="primary" outlined class="ml-2" @click="openCollect">
++        <v-icon left small>mdi-lan-connect</v-icon>{{ $t('devCollectSwitch') }}
++      </v-btn>
++    </v-toolbar>
++    <v-divider />
++
++    <div class="pa-4">
++      <v-alert type="info" dense text class="mb-3">{{ $t('devicesHint') }}</v-alert>
++      <v-alert v-if="error" type="error" dense text class="mb-3">{{ error }}</v-alert>
++
++      <v-simple-table>
++        <thead>
++          <tr>
++            <th></th>
++            <th>{{ $t('devHost') }}</th>
++            <th>{{ $t('devName') }}</th>
++            <th>{{ $t('devVendorModel') }}</th>
++            <th>{{ $t('devOsFw') }}</th>
++            <th>{{ $t('devLastSeen') }}</th>
++            <th></th>
++          </tr>
++        </thead>
++        <tbody>
++          <tr v-for="d in devices" :key="d.id" style="cursor: pointer;" @click="openDevice(d.id)">
++            <td>
++              <v-icon small :color="d.kind === 'switch' ? 'indigo' : 'green'">
++                {{ d.kind === 'switch' ? 'mdi-switch' : 'mdi-monitor' }}
++              </v-icon>
++            </td>
++            <td><code>{{ d.host }}</code></td>
++            <td>{{ d.hostname || '—' }}</td>
++            <td>{{ [d.vendor, d.model].filter(Boolean).join(' ') || '—' }}</td>
++            <td>{{ d.kind === 'switch' ? (d.firmware || '—') : (d.os || '—') }}</td>
++            <td>{{ d.last_seen ? d.last_seen.replace('T', ' ').slice(0, 16) : '—' }}</td>
++            <td><v-icon small>mdi-chevron-right</v-icon></td>
++          </tr>
++          <tr v-if="!loading && devices.length === 0">
++            <td colspan="7" class="grey--text text-center pa-4">{{ $t('devEmpty') }}</td>
++          </tr>
++        </tbody>
++      </v-simple-table>
++    </div>
++
++    <!-- Detail -->
++    <v-dialog v-model="detail.show" width="820" scrollable>
++      <v-card v-if="detail.data">
++        <v-card-title class="pb-2">
++          <v-icon :color="detail.data.kind === 'switch' ? 'indigo' : 'green'" class="mr-2">
++            {{ detail.data.kind === 'switch' ? 'mdi-switch' : 'mdi-monitor' }}
++          </v-icon>
++          {{ detail.data.hostname || detail.data.host }}
++          <v-chip
++            x-small class="ml-2" text-color="white"
++            :color="detail.data.kind === 'switch' ? 'indigo' : 'green'"
++          >
++            {{ detail.data.kind }}
++          </v-chip>
++        </v-card-title>
++        <v-divider></v-divider>
++        <v-card-text class="pt-3">
++          <div class="caption grey--text mb-2">
++            <code>{{ detail.data.host }}</code>
++            <span v-if="detail.data.serial"> · S/N {{ detail.data.serial }}</span>
++            <span v-if="detail.data.uptime"> · up {{ detail.data.uptime }}</span>
++            <span v-if="detail.data.location"> · {{ detail.data.location }}</span>
++          </div>
++
++          <v-tabs v-model="detail.tab" dense>
++            <template v-if="detail.data.kind === 'switch'">
++              <v-tab>{{ $t('devTabIfaces') }} ({{ (detail.data.interfaces || []).length }})</v-tab>
++              <v-tab>
++                {{ $t('devTabNeighbors') }} ({{ (detail.data.neighbors || []).length }})
++              </v-tab>
++              <v-tab>{{ $t('devTabFdb') }} ({{ (detail.data.fdb || []).length }})</v-tab>
++            </template>
++            <template v-else>
++              <v-tab>{{ $t('devTabSoftware') }} ({{ (detail.data.software || []).length }})</v-tab>
++              <v-tab>{{ $t('devTabServices') }} ({{ (detail.data.services || []).length }})</v-tab>
++              <v-tab>{{ $t('devTabPatches') }} ({{ (detail.data.patches || []).length }})</v-tab>
++            </template>
++            <v-tab>{{ $t('devTabChanges') }}</v-tab>
++          </v-tabs>
++
++          <v-tabs-items v-model="detail.tab" class="mt-2">
++            <template v-if="detail.data.kind === 'switch'">
++              <v-tab-item>
++                <v-simple-table dense>
++                  <thead>
++                    <tr>
++                      <th>Port</th><th>Alias</th><th>Status</th><th>Speed</th><th>MAC</th>
++                    </tr>
++                  </thead>
++                  <tbody>
++                    <tr v-for="(f, i) in detail.data.interfaces" :key="i">
++                      <td>{{ f.name }}</td><td>{{ f.alias }}</td>
++                      <td>
++                        <span :class="f.oper === 'up' ? 'green--text' : 'grey--text'">
++                          {{ f.oper }}
++                        </span>
++                      </td>
++                      <td>{{ f.speed_mbps ? f.speed_mbps + ' Mbps' : '' }}</td>
++                      <td><code class="caption">{{ f.mac }}</code></td>
++                    </tr>
++                  </tbody>
++                </v-simple-table>
++              </v-tab-item>
++              <v-tab-item>
++                <v-simple-table dense>
++                  <thead>
++                    <tr>
++                      <th>Local port</th><th>Remote name</th><th>Remote port</th>
++                    </tr>
++                  </thead>
++                  <tbody>
++                    <tr v-for="(n, i) in detail.data.neighbors" :key="i">
++                      <td>{{ n.local_port }}</td>
++                      <td>{{ n.remote_name }}</td>
++                      <td>{{ n.remote_port }}</td>
++                    </tr>
++                  </tbody>
++                </v-simple-table>
++              </v-tab-item>
++              <v-tab-item>
++                <v-simple-table dense>
++                  <thead><tr><th>MAC</th><th>Port</th></tr></thead>
++                  <tbody>
++                    <tr v-for="(f, i) in detail.data.fdb" :key="i">
++                      <td><code class="caption">{{ f.mac }}</code></td><td>{{ f.port }}</td>
++                    </tr>
++                  </tbody>
++                </v-simple-table>
++              </v-tab-item>
++            </template>
++            <template v-else>
++              <v-tab-item>
++                <v-simple-table dense>
++                  <thead><tr><th>{{ $t('devName') }}</th><th>Version</th></tr></thead>
++                  <tbody>
++                    <tr v-for="(s, i) in detail.data.software" :key="i">
++                      <td>{{ s.name }}</td><td>{{ s.version }}</td>
++                    </tr>
++                  </tbody>
++                </v-simple-table>
++              </v-tab-item>
++              <v-tab-item>
++                <v-simple-table dense>
++                  <thead><tr><th>{{ $t('devName') }}</th><th>State</th><th>Start</th></tr></thead>
++                  <tbody>
++                    <tr v-for="(s, i) in detail.data.services" :key="i">
++                      <td>{{ s.name }}</td><td>{{ s.state }}</td><td>{{ s.start }}</td>
++                    </tr>
++                  </tbody>
++                </v-simple-table>
++              </v-tab-item>
++              <v-tab-item>
++                <v-simple-table dense>
++                  <thead><tr><th>KB</th><th>Installed</th></tr></thead>
++                  <tbody>
++                    <tr v-for="(p, i) in detail.data.patches" :key="i">
++                      <td>{{ p.kb }}</td><td>{{ p.installed }}</td>
++                    </tr>
++                  </tbody>
++                </v-simple-table>
++              </v-tab-item>
++            </template>
++            <v-tab-item>
++              <v-simple-table dense>
++                <thead>
++                  <tr>
++                    <th>{{ $t('devLastSeen') }}</th><th>Kind</th><th>Detail</th>
++                  </tr>
++                </thead>
++                <tbody>
++                  <tr v-for="(c, i) in detail.changes" :key="i">
++                    <td>{{ c.ts.replace('T', ' ').slice(0, 16) }}</td>
++                    <td>{{ c.kind }}</td>
++                    <td>{{ c.detail }}</td>
++                  </tr>
++                  <tr v-if="detail.changes.length === 0">
++                    <td colspan="3" class="grey--text">{{ $t('devNoChanges') }}</td>
++                  </tr>
++                </tbody>
++              </v-simple-table>
++            </v-tab-item>
++          </v-tabs-items>
++        </v-card-text>
++        <v-divider></v-divider>
++        <v-card-actions>
++          <v-spacer></v-spacer>
++          <v-btn text @click="detail.show = false">{{ $t('close') }}</v-btn>
++        </v-card-actions>
++      </v-card>
++    </v-dialog>
++
++    <!-- Collect switch -->
++    <v-dialog v-model="collect.show" width="520">
++      <v-card>
++        <v-card-title>{{ $t('devCollectSwitch') }}</v-card-title>
++        <v-divider></v-divider>
++        <v-card-text class="pt-4">
++          <v-alert v-if="collect.error" type="error" dense text class="mb-2">
++            {{ collect.error }}
++          </v-alert>
++          <v-text-field
++            v-model.trim="collect.form.host"
++            label="Host / IP" outlined dense
++          ></v-text-field>
++          <v-select
++            v-model="collect.form.version"
++            :items="['v2c', 'v3']" label="SNMP version" outlined dense
++          ></v-select>
++          <v-text-field
++            v-if="collect.form.version === 'v2c'"
++            v-model.trim="collect.form.community"
++            label="Community" placeholder="public" outlined dense
++          ></v-text-field>
++          <template v-else>
++            <v-text-field
++              v-model.trim="collect.form.user"
++              label="v3 user" outlined dense
++            ></v-text-field>
++            <v-row dense>
++              <v-col cols="6">
++                <v-select
++                  v-model="collect.form.auth_proto"
++                  :items="['MD5', 'SHA']" label="Auth" outlined dense clearable
++                ></v-select>
++              </v-col>
++              <v-col cols="6">
++                <v-text-field
++                  v-model="collect.form.auth_pass"
++                  label="Auth pass" type="password" outlined dense
++                ></v-text-field>
++              </v-col>
++            </v-row>
++            <v-row dense>
++              <v-col cols="6">
++                <v-select
++                  v-model="collect.form.priv_proto"
++                  :items="['DES', 'AES']" label="Priv" outlined dense clearable
++                ></v-select>
++              </v-col>
++              <v-col cols="6">
++                <v-text-field
++                  v-model="collect.form.priv_pass"
++                  label="Priv pass" type="password" outlined dense
++                ></v-text-field>
++              </v-col>
++            </v-row>
++          </template>
++        </v-card-text>
++        <v-divider></v-divider>
++        <v-card-actions>
++          <v-btn text :disabled="collect.busy" @click="collect.show = false">
++            {{ $t('cancel') }}
++          </v-btn>
++          <v-spacer></v-spacer>
++          <v-btn
++            color="primary"
++            :loading="collect.busy"
++            :disabled="!collect.form.host"
++            @click="submitCollect"
++          >
++            <v-icon left small>mdi-download-network</v-icon>{{ $t('devCollect') }}
++          </v-btn>
++        </v-card-actions>
++      </v-card>
++    </v-dialog>
++  </div>
++</template>
++<script>
++import axios from 'axios';
++import EventBus from '@/event-bus';
++import { getErrorMessage } from '@/lib/error';
++
++const API = '/api/plugins/device-inventory';
++
++export default {
++  data() {
++    return {
++      devices: [],
++      loading: false,
++      error: null,
++      detail: {
++        show: false, data: null, changes: [], tab: 0,
++      },
++      collect: {
++        show: false,
++        busy: false,
++        error: null,
++        form: {
++          host: '',
++          version: 'v2c',
++          community: 'public',
++          user: '',
++          auth_proto: 'SHA',
++          auth_pass: '',
++          priv_proto: 'AES',
++          priv_pass: '',
++        },
++      },
++    };
++  },
++
++  async created() {
++    await this.loadDevices();
++  },
++
++  methods: {
++    showDrawer() {
++      EventBus.$emit('i-show-drawer');
++    },
++
++    async loadDevices() {
++      this.loading = true;
++      this.error = null;
++      try {
++        const { data } = await axios.get(`${API}/devices`);
++        this.devices = data.devices || [];
++      } catch (err) {
++        this.error = getErrorMessage(err);
++      } finally {
++        this.loading = false;
++      }
++    },
++
++    async openDevice(id) {
++      this.detail.tab = 0;
++      this.detail.changes = [];
++      try {
++        const [d, c] = await Promise.all([
++          axios.get(`${API}/device`, { params: { id } }),
++          axios.get(`${API}/changes`, { params: { id } }),
++        ]);
++        this.detail.data = d.data;
++        this.detail.changes = c.data.changes || [];
++        this.detail.show = true;
++      } catch (err) {
++        this.error = getErrorMessage(err);
++      }
++    },
++
++    openCollect() {
++      this.collect.error = null;
++      this.collect.show = true;
++    },
++
++    async submitCollect() {
++      this.collect.busy = true;
++      this.collect.error = null;
++      try {
++        await axios.post(`${API}/collect-switch`, this.collect.form);
++        this.collect.show = false;
++        await this.loadDevices();
++      } catch (err) {
++        this.collect.error = getErrorMessage(err);
++      } finally {
++        this.collect.busy = false;
++      }
++    },
++  },
++};
++</script>
