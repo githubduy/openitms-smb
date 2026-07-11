@@ -3,6 +3,13 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-11 — 0036-device-collect-host-ui.patch
+**WHY:** UI Devices (0035) chỉ thu được switch; cần nút thu HOST (osquery) từ giao diện để dùng Phase 5
+(plugin tự cài osquery khi máy đích chưa có).
+**WHAT:** `DeviceInventory.vue` +nút "Collect host" + dialog (host, chọn cert từ `/winrs/certs`, checkbox
+auto-deploy) → POST `/plugins/device-inventory/collect`. +i18n `devCollectHost`/`devAutoDeploy*`.
+Verify E2E: nút hiện, dialog nạp cert list, POST collect. Spec 0036.
+
 ## 2026-07-11 — 0035-device-inventory-ui.patch
 **WHY:** Plugin `device-inventory` (CMDB) chưa có UI — frontend Semaphore không có cơ chế render
 plugin UI (`menu_title` chưa ai đọc). User cần thấy device/asset (host + switch).

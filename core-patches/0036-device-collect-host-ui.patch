@@ -1,0 +1,147 @@
+# PATCH: 0036-device-collect-host-ui
+# WHY: UI Devices (0035) chi thu duoc switch; can nut thu HOST (osquery) tu giao dien de dung Phase 5.
+# WHAT: DeviceInventory.vue +nut "Collect host" + dialog (host, chon cert tu /winrs/certs, checkbox
+#       auto-deploy) -> POST /plugins/device-inventory/collect. +i18n devCollectHost/devAutoDeploy*.
+# SPEC: docs/L2-specs/core-patches/0036-device-collect-host-ui.md
+# BASELINE: v2.18.16
+#
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index d9ac42a..ead55c4 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -33,6 +33,10 @@ export default {
+     + 'via SNMP. Click a device to see details and change history.',
+   refresh: 'Refresh',
+   devCollectSwitch: 'Collect a switch (SNMP)',
++  devCollectHost: 'Collect a host (osquery)',
++  devAutoDeploy: 'Auto-install osquery if missing',
++  devAutoDeployHint: 'If the target has no osquery, download + install it (needs internet on the '
++    + 'target). Turn off for air-gapped hosts (install osquery manually first).',
+   devCollect: 'Collect',
+   devHost: 'Host / IP',
+   devName: 'Name',
+diff --git a/web/src/lang/vi.js b/web/src/lang/vi.js
+index 8ebe0bd..b0896ff 100644
+--- a/web/src/lang/vi.js
++++ b/web/src/lang/vi.js
+@@ -33,6 +33,10 @@ export default {
+     + 'SNMP. Bấm vào thiết bị để xem chi tiết và lịch sử thay đổi.',
+   refresh: 'Làm mới',
+   devCollectSwitch: 'Thu switch (SNMP)',
++  devCollectHost: 'Thu máy chủ (osquery)',
++  devAutoDeploy: 'Tự cài osquery nếu chưa có',
++  devAutoDeployHint: 'Nếu máy đích chưa có osquery, tự tải + cài (máy đích cần internet). Tắt cho '
++    + 'máy air-gapped (cài osquery thủ công trước).',
+   devCollect: 'Thu thập',
+   devHost: 'Host / IP',
+   devName: 'Tên',
+diff --git a/web/src/views/project/DeviceInventory.vue b/web/src/views/project/DeviceInventory.vue
+index 6b7f2c3..56a5018 100644
+--- a/web/src/views/project/DeviceInventory.vue
++++ b/web/src/views/project/DeviceInventory.vue
+@@ -10,6 +10,9 @@
+       <v-btn small text :loading="loading" @click="loadDevices">
+         <v-icon left small>mdi-refresh</v-icon>{{ $t('refresh') }}
+       </v-btn>
++      <v-btn small color="primary" outlined class="ml-2" @click="openCollectHost">
++        <v-icon left small>mdi-microsoft-windows</v-icon>{{ $t('devCollectHost') }}
++      </v-btn>
+       <v-btn small color="primary" outlined class="ml-2" @click="openCollect">
+         <v-icon left small>mdi-lan-connect</v-icon>{{ $t('devCollectSwitch') }}
+       </v-btn>
+@@ -278,6 +281,47 @@
+         </v-card-actions>
+       </v-card>
+     </v-dialog>
++
++    <v-dialog v-model="host.show" width="520">
++      <v-card>
++        <v-card-title>{{ $t('devCollectHost') }}</v-card-title>
++        <v-divider></v-divider>
++        <v-card-text class="pt-4">
++          <v-alert v-if="host.error" type="error" dense text class="mb-2">
++            {{ host.error }}
++          </v-alert>
++          <v-text-field
++            v-model.trim="host.form.host"
++            label="Host / IP" outlined dense
++          ></v-text-field>
++          <v-autocomplete
++            v-model="host.form.cert"
++            :items="host.certs"
++            :label="$t('winrsCertLabel')"
++            outlined dense
++          ></v-autocomplete>
++          <v-checkbox
++            v-model="host.form.auto_deploy"
++            :label="$t('devAutoDeploy')"
++            dense hide-details class="mt-0"
++          ></v-checkbox>
++          <div class="caption grey--text mt-1">{{ $t('devAutoDeployHint') }}</div>
++        </v-card-text>
++        <v-divider></v-divider>
++        <v-card-actions>
++          <v-btn text :disabled="host.busy" @click="host.show = false">{{ $t('cancel') }}</v-btn>
++          <v-spacer></v-spacer>
++          <v-btn
++            color="primary"
++            :loading="host.busy"
++            :disabled="!host.form.host || !host.form.cert"
++            @click="submitCollectHost"
++          >
++            <v-icon left small>mdi-download-network</v-icon>{{ $t('devCollect') }}
++          </v-btn>
++        </v-card-actions>
++      </v-card>
++    </v-dialog>
+   </div>
+ </template>
+ <script>
+@@ -311,6 +355,13 @@ export default {
+           priv_pass: '',
+         },
+       },
++      host: {
++        show: false,
++        busy: false,
++        error: null,
++        certs: [],
++        form: { host: '', cert: null, auto_deploy: true },
++      },
+     };
+   },
+ 
+@@ -370,6 +421,33 @@ export default {
+         this.collect.busy = false;
+       }
+     },
++
++    async openCollectHost() {
++      this.host.error = null;
++      this.host.show = true;
++      // nạp danh sách cert từ core (thư mục ./certs của project).
++      try {
++        const pid = this.$route.params.projectId;
++        const { data } = await axios.get(`/api/project/${pid}/winrs/certs`);
++        this.host.certs = (data.certs || []).map((c) => c.name);
++      } catch (err) {
++        this.host.certs = [];
++      }
++    },
++
++    async submitCollectHost() {
++      this.host.busy = true;
++      this.host.error = null;
++      try {
++        await axios.post(`${API}/collect`, this.host.form);
++        this.host.show = false;
++        await this.loadDevices();
++      } catch (err) {
++        this.host.error = getErrorMessage(err);
++      } finally {
++        this.host.busy = false;
++      }
++    },
+   },
+ };
+ </script>
