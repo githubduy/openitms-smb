@@ -1,0 +1,62 @@
+# PATCH: 0025-cert-security-panel
+# WHY: File cert .pem chua ca private key = credential admin toan fleet. User can canh bao ro rui ro
+#      khi file lo (tren trang WinRS Console noi dat/dung cert).
+# WHAT: WinRSConsole.vue +panel canh bao bao mat cert (.pem) + en.js certSecurity* keys. (Tach ra tu
+#       0025-winrs-inventory cu; phan inventory da bo o Phase 4 vi da chuyen sang plugin device-inventory.)
+# SPEC: docs/L2-specs/core-patches/0025-cert-security-panel.md
+# BASELINE: v2.18.16
+#
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index 2f24ad9..48a17be 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -63,6 +63,18 @@ export default {
+   winrsHistory: 'Recent commands',
+   winrsHistoryEmpty: 'No commands run yet.',
+   winrsReuse: 'Reuse',
++  certSecurityTitle: 'Security: protect the .pem certificate file',
++  certSecurityBody: 'The .pem file (e.g. openitms-<HOST>.pem) contains the client certificate AND '
++    + 'its private key. It is the credential that logs in as the "openitms" administrator account. '
++    + 'If this file leaks, an attacker can:',
++  certSecurityRisk1: 'Run ANY command as administrator on every Windows machine that trusts this '
++    + 'certificate — i.e. full remote control of your managed fleet.',
++  certSecurityRisk2: 'Read/modify files, install software, create accounts, disable security — '
++    + 'equivalent to physical admin access to those machines.',
++  certSecurityRisk3: 'Move laterally across the network using the compromised hosts.',
++  certSecurityDo: 'Treat it like a root password: keep it only in the server\'s certs/ folder '
++    + '(restricted access), never email/share/commit it. If it leaks, re-enroll the affected '
++    + 'machines — that issues a new certificate and the old one stops working.',
+   loading: 'Loading…',
+   winrsHostHint: 'Run pwsh directly on the Windows host via WinRM (certificate). Place the cert in '
+     + 'the runner\'s {certsDir} folder (or set {envVar}).',
+diff --git a/web/src/views/project/WinRSConsole.vue b/web/src/views/project/WinRSConsole.vue
+index df604e6..d9980c3 100644
+--- a/web/src/views/project/WinRSConsole.vue
++++ b/web/src/views/project/WinRSConsole.vue
+@@ -15,6 +15,26 @@
+         {{ $t('winrsConsoleHint') }}
+       </v-alert>
+ 
++      <v-expansion-panels class="mb-3" flat>
++        <v-expansion-panel style="border: 1px solid #ffcc80;">
++          <v-expansion-panel-header>
++            <div>
++              <v-icon color="warning" class="mr-2">mdi-shield-alert</v-icon>
++              {{ $t('certSecurityTitle') }}
++            </div>
++          </v-expansion-panel-header>
++          <v-expansion-panel-content>
++            <p class="body-2 mb-2">{{ $t('certSecurityBody') }}</p>
++            <ul class="body-2">
++              <li>{{ $t('certSecurityRisk1') }}</li>
++              <li>{{ $t('certSecurityRisk2') }}</li>
++              <li>{{ $t('certSecurityRisk3') }}</li>
++            </ul>
++            <p class="body-2 mt-2 mb-0"><strong>{{ $t('certSecurityDo') }}</strong></p>
++          </v-expansion-panel-content>
++        </v-expansion-panel>
++      </v-expansion-panels>
++
+       <v-expansion-panels class="mb-4" flat>
+         <v-expansion-panel style="border: 1px solid #e0e0e0;">
+           <v-expansion-panel-header>

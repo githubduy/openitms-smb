@@ -25,10 +25,7 @@
 0022-enroll-clientcert-negotiation.patch
 0023-enroll-localaccount-token.patch
 0024-enroll-admin-domain.patch
-0025-winrs-inventory.patch
-0026-inventory-extra-schedule.patch
-0027-inventory-filter-diff-export.patch
-0028-inventory-export-detail.patch
+0025-cert-security-panel.patch
 0029-template-script-editor.patch
 0030-discovery-separate-inventory.patch
 0031-vietnamese-language.patch

@@ -57,33 +57,19 @@ commit vào repo local (Gitea). Backend `quickwin_gitea_commit.go` (hook mỏng)
 `/gitea/file`; logic Gitea Contents API (`GetFile`/`PutFile`) ở giteamanager ngoài cây upstream.
 Test: gitea-manager GetFile/PutFile (create→POST, update→PUT kèm sha). Spec 0029.
 
-## 2026-07-09 — 0028-inventory-export-detail.patch
-**WHY:** audit fleet cần CSV chi tiết (1 dòng/mục) thay vì chỉ đếm — để lọc/pivot trong Excel.
-**WHAT:** ExportWinRSInventory nhận `?detail=software|services|tasks|hotfixes` → CSV long-format
-(1 dòng/mục/host); struct `invDataFull` parse đủ trường; không có detail giữ bản tóm tắt.
-UI: nút CSV thành menu dropdown 5 lựa chọn (Summary/Software/Services/Tasks/Hotfixes) + method `invCsvUrl`.
-Verify thật: detail=software → 1 dòng/app (name+version); services có cột state/start/microsoft. Spec 0028.
+## 2026-07-11 — DEPRECATE core inventory (Phase 4): gỡ 0025(inventory)/0026/0027/0028
+**WHY:** device/asset inventory đã chuyển sang **plugin `device-inventory`** (osquery host + SNMP switch,
+CMDB trong MariaDB) — đúng nguyên tắc plugin-first. Inventory tự-viết trong core thành thừa/trùng.
+**WHAT:** XÓA hẳn patch `0026-inventory-extra-schedule`, `0027-inventory-filter-diff-export`,
+`0028-inventory-export-detail`; và phần inventory của `0025` (collect-inventory.ps1,
+quickwin_winrs_inventory.go, routes /winrs/inventory*, scheduler root.go, section Inventory +i18n inv*
+trong WinRSConsole.vue). Chain 0029-0035 apply sạch không cần các patch này (đã kiểm chứng).
+Config inventory (host/cred) vẫn ở DB core (Semaphore native). Device data → plugin.
 
-## 2026-07-09 — 0027-inventory-filter-diff-export.patch
-**WHY:** inventory dễ audit: (A) lọc Microsoft khỏi service/task (checkbox hiện lại + chỉ hiện Running);
-(B) so sánh 2 lần quét (software mới/gỡ, service đổi state); (C) export CSV/JSON fleet.
-**WHAT:** collect script +cờ ms cho service; winrsInvHost +Prev (setHostData); ExportWinRSInventory
-(csv/json); router +export route; UI checkbox filter + panel "Changes since last scan" + nút Export.
-Verify thật: 259/288 service ms; CSV/JSON export OK. Spec 0027.
-
-## 2026-07-09 — 0026-inventory-extra-schedule.patch
-**WHY:** thu thập thêm services + scheduled tasks + patch level (hotfixes); auto-collect định kỳ 4h/lần.
-**WHAT:** collect-inventory.ps1 +services/tasks/hotfixes/os_build. quickwin_winrs_inventory.go: config
-+collect_interval_min (default 240) + LastCollect; collectHostInventory helper; RunDueInventoryCollect
-(scheduler). root.go goroutine 5'. UI: field interval + hiển thị fields mới. Verify thật: services 288/
-tasks 249/hotfixes 4/build 22631. Spec 0026.
-
-## 2026-07-09 — 0025-winrs-inventory.patch
-**WHY:** (A) cảnh báo rủi ro nếu .pem lộ (credential admin toàn fleet); (B) máy managed có tuỳ chọn
-(mặc định bật) thu thập inventory software/IP/DNS/route/hostname/user-group/domain.
-**WHAT:** collect-inventory.ps1 (CIM+registry+Net*→JSON gọn); quickwin_winrs_inventory.go (chạy qua
-winrsexec, parse, lưu; Get/SetConfig/Collect); router +3 route; UI WinRSConsole panel bảo mật .pem +
-section Inventory (toggle + Collect + hiển thị per host). Verify thật: collect 10.x → 142 apps. Spec 0025.
+## 2026-07-11 — 0025-cert-security-panel.patch (tách từ 0025 cũ)
+**WHY:** file cert `.pem` chứa private key = credential admin toàn fleet; cần cảnh báo rõ rủi ro khi lộ.
+**WHAT:** WinRSConsole.vue +panel cảnh báo bảo mật cert (.pem) + en.js `certSecurity*`. (Phần bảo mật
+cert giữ lại từ 0025 cũ; phần inventory đã bỏ ở Phase 4.) Verify: panel hiện trên WinRS Console. Spec 0025.
 
 ## 2026-07-09 — 0024-enroll-admin-domain.patch
 **WHY:** máy domain-joined: Add-LocalGroupMember resolve tên local user nhầm sang domain → fail thầm →
