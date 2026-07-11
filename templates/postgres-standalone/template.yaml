@@ -1,0 +1,12 @@
+name: postgres-standalone
+version: 0.1.0
+type: template
+license: MIT
+description: Triển khai PostgreSQL standalone (docker compose) lên host đích.
+runner: bash
+category: app-deployment
+inputs:
+  - { name: postgres_password, label: PostgreSQL password (user postgres), type: string, required: true }
+  - { name: db_name, label: Database tạo sẵn, type: string, default: appdb }
+  - { name: version, label: PostgreSQL version, type: string, default: "16" }
+entrypoint: deploy.sh

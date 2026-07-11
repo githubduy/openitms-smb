@@ -1,0 +1,15 @@
+name: linux-baseline
+version: 0.1.0
+type: template
+license: MIT
+description: >
+  Cập nhật hệ thống + cài gói thiết yếu + bật unattended-upgrades (Debian/Ubuntu).
+  Chạy trên host Linux đích (bash).
+runner: bash
+category: endpoint-provisioning
+inputs:
+  - name: extra_packages
+    label: Gói cài thêm (cách nhau dấu cách)
+    type: string
+    default: "curl vim htop"
+entrypoint: baseline.sh

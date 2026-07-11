@@ -1,0 +1,15 @@
+name: win-baseline-apps
+version: 0.1.0
+type: template
+license: MIT
+description: >
+  Cài bộ phần mềm nền cho máy Windows mới qua winget (idempotent: đã có thì nâng cấp).
+  Chạy trên máy Windows đích qua WinRS certificate auth.
+runner: powershell
+category: endpoint-provisioning
+inputs:
+  - name: packages
+    label: Danh sách winget package ID (cách nhau dấu phẩy)
+    type: string
+    default: 7zip.7zip,Google.Chrome,Notepad++.Notepad++
+entrypoint: apps.ps1

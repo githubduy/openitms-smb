@@ -1,0 +1,15 @@
+name: win-firewall-baseline
+version: 0.1.0
+type: template
+license: MIT
+description: >
+  Bật Windows Firewall cả 3 profile, mặc định chặn inbound / cho phép outbound,
+  tuỳ chọn cho phép ICMP ping. Chạy trên máy Windows đích qua WinRS certificate auth.
+runner: powershell
+category: endpoint-provisioning
+inputs:
+  - name: allow_ping
+    label: Cho phép ICMP ping (echo request)?
+    type: string
+    default: "true"
+entrypoint: firewall.ps1
