@@ -1,0 +1,31 @@
+name: device-inventory
+version: 0.1.0
+license: MIT
+description: Agentless device/asset inventory (osquery over WinRS) stored as a lightweight CMDB in MariaDB
+protocol_version: 1
+entrypoint:
+  linux-amd64: device-inventory
+  windows-amd64: device-inventory.exe
+routes:
+  - method: GET
+    path: devices
+    description: List inventoried devices
+  - method: GET
+    path: device
+    description: Device detail (facts) by id
+  - method: GET
+    path: changes
+    description: Change history for a device by id
+  - method: POST
+    path: collect
+    description: Collect inventory from a host via osquery over WinRS
+    require_admin: true
+  - method: GET
+    path: export
+    description: Export the whole fleet inventory (csv|json)
+permissions:
+  - certs:read
+  - network:outbound
+  - inventory:read
+ui:
+  menu_title: Devices
