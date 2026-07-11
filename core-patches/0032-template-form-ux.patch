@@ -1,0 +1,86 @@
+# PATCH: 0032-template-form-ux
+# WHY: Tao Task Template: (1) SMB thuong chi co 1 repo local nen phai mac dinh chon san, khoi de trong;
+#      (2) 3 tab Task/Build/Deploy khong ro nghia voi nguoi khong chuyen -> can tooltip mo ta.
+# WHAT: TemplateForm.vue: afterLoadData default item.repository_id = repo local (Gitea) khi tao moi;
+#       them :title tooltip cho 3 tab type (method templateTypeTooltip). +i18n tooltipTemplate*.
+# SPEC: docs/L2-specs/core-patches/0032-template-form-ux.md
+# BASELINE: v2.18.16
+#
+diff --git a/web/src/components/TemplateForm.vue b/web/src/components/TemplateForm.vue
+index 603d3db..1e11fb7 100644
+--- a/web/src/components/TemplateForm.vue
++++ b/web/src/components/TemplateForm.vue
+@@ -163,6 +163,7 @@
+               style="padding: 0"
+               v-for="(key) in Object.keys(TEMPLATE_TYPE_ICONS)"
+               :key="key"
++              :title="$t(templateTypeTooltip(key))"
+             >
+               <v-icon small class="mr-2">{{ TEMPLATE_TYPE_ICONS[key] }}</v-icon>
+               {{ $t(TEMPLATE_TYPE_TITLES[key]) }}
+@@ -840,6 +841,14 @@ export default {
+   },
+ 
+   methods: {
++    templateTypeTooltip(key) {
++      switch (key) {
++        case 'build': return 'tooltipTemplateBuild';
++        case 'deploy': return 'tooltipTemplateDeploy';
++        default: return 'tooltipTemplateTask';
++      }
++    },
++
+     defaultFilenameForApp() {
+       switch (this.app) {
+         case 'ansible': return 'site.yml';
+@@ -1077,6 +1086,16 @@ export default {
+ 
+       await this.loadRelativeData();
+ 
++      // QUICKWIN 0032 — template mới: mặc định chọn repo local (Gitea) nếu chưa chọn.
++      if (this.isNew && !this.item.repository_id && Array.isArray(this.repositories)) {
++        const local = this.repositories.find((r) => (r.name || '').includes('Gitea'));
++        if (local) {
++          this.$set(this.item, 'repository_id', local.id);
++        } else if (this.repositories.length === 1) {
++          this.$set(this.item, 'repository_id', this.repositories[0].id);
++        }
++      }
++
+       if (this.schedules.length > 0) {
+         const schedule = this.schedules.find((s) => s.repository_id != null);
+         if (schedule != null) {
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index d6bc07f..5975280 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -18,6 +18,12 @@ export default {
+   tooltipRunners: 'Worker machines that execute tasks when not run directly on the OpenITMS server.',
+   tooltipNetworkDiscovery: 'Scan a network range to find online devices and see which are already '
+     + 'managed, which are new, gateways/routers, or ignored.',
++  tooltipTemplateTask: 'A normal job you run on demand or on a schedule (e.g. install software, '
++    + 'run a script, apply updates). The most common type.',
++  tooltipTemplateBuild: 'Produces an artifact and a version number (each run increments it). Use it '
++    + 'as the first step of a build → deploy pipeline.',
++  tooltipTemplateDeploy: 'Deploys the artifact produced by a Build template to your target machines. '
++    + 'Links to a Build template as its source.',
+ 
+   // QUICKWIN — Network Discovery
+   note: 'Note',
+diff --git a/web/src/lang/vi.js b/web/src/lang/vi.js
+index fd8f3c7..b8bb97e 100644
+--- a/web/src/lang/vi.js
++++ b/web/src/lang/vi.js
+@@ -18,6 +18,12 @@ export default {
+   tooltipRunners: 'Các máy worker thực thi tác vụ khi không chạy trực tiếp trên máy chủ OpenITMS.',
+   tooltipNetworkDiscovery: 'Quét một dải mạng để tìm các thiết bị đang online và xem cái nào đã '
+     + 'được quản lý, cái nào mới, gateway/router, hay đã bỏ qua.',
++  tooltipTemplateTask: 'Tác vụ thông thường, chạy khi cần hoặc theo lịch (vd cài phần mềm, chạy '
++    + 'script, cập nhật bản vá). Loại hay dùng nhất.',
++  tooltipTemplateBuild: 'Tạo ra một artifact kèm số phiên bản (mỗi lần chạy tự tăng). Dùng làm bước '
++    + 'đầu của quy trình build → deploy.',
++  tooltipTemplateDeploy: 'Triển khai artifact do template Build tạo ra xuống các máy đích. Liên kết '
++    + 'tới một template Build làm nguồn.',
+ 
+   // QUICKWIN — Network Discovery
+   note: 'Ghi chú',

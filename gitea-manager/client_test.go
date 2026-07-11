@@ -183,6 +183,32 @@ func TestPutFile_CreateThenUpdate(t *testing.T) {
 	}
 }
 
+func TestListDir(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/repos/openitms/host/contents/scripts":
+			json.NewEncoder(w).Encode([]DirEntry{
+				{Name: "README.md", Path: "scripts/README.md", Type: "file"},
+				{Name: "tools", Path: "scripts/tools", Type: "dir"},
+			})
+		default: // thư mục chưa tồn tại
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, "t")
+
+	entries, err := c.ListDir(context.Background(), "openitms", "host", "main", "scripts")
+	if err != nil || len(entries) != 2 || entries[1].Type != "dir" {
+		t.Fatalf("ListDir sai: %+v err=%v", entries, err)
+	}
+	// thư mục chưa có → rỗng, không lỗi
+	empty, err := c.ListDir(context.Background(), "openitms", "host", "main", "nope")
+	if err != nil || len(empty) != 0 {
+		t.Fatalf("ListDir thư mục trống phải rỗng không lỗi: %+v err=%v", empty, err)
+	}
+}
+
 func TestHealthz(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/healthz" {

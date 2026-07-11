@@ -3,6 +3,27 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-11 — 0034-repo-file-browser.patch
+**WHY:** Ở ô script filename user phải gõ tay tên file, không biết repo có gì; cần duyệt cây thư mục
+git để chọn file + tạo mới thư mục/file ngay đó.
+**WHAT:** Backend hook mỏng `ListTemplateRepoDir` + route `GET /gitea/dir` (logic `ListDir` ở
+giteamanager). UI TemplateForm.vue: nút Browse + dialog duyệt (folder/file, lên cấp, chọn file →
+điền filename), nút "New folder" (tạo `<dir>/.gitkeep`) + "New file" (mở editor 0029 tại thư mục
+hiện tại). +i18n `scriptBrowse*`. Verify E2E: liệt kê repo, tạo folder, chọn file. Spec 0034.
+
+## 2026-07-11 — 0033-repo-scaffold.patch
+**WHY:** Repo local mới tạo (0008) trống trơn → user không biết bắt đầu từ đâu.
+**WHAT:** `quickwin_gitea.go` sau `CreateRepo` gọi `scaffoldRepo()` PutFile README.md + scripts/ +
+playbooks/ + deploys/ (mỗi folder 1 README.md vì git không track folder rỗng), dùng `PutFile` (0029).
+Non-fatal (chỉ log nếu fail). Verify E2E: project mới → repo có README + 3 folder. Spec 0033.
+
+## 2026-07-11 — 0032-template-form-ux.patch
+**WHY:** Tạo Task Template: SMB thường chỉ 1 repo local → nên mặc định chọn sẵn (khỏi để trống);
+3 tab Task/Build/Deploy khó hiểu với người không chuyên → cần tooltip.
+**WHAT:** `TemplateForm.vue`: `afterLoadData` default `repository_id` = repo local (Gitea) khi tạo
+mới (hoặc repo duy nhất); thêm `:title` tooltip 3 tab type (`templateTypeTooltip`). +i18n
+`tooltipTemplateTask/Build/Deploy`. Verify E2E. Spec 0032.
+
 ## 2026-07-11 — 0031-vietnamese-language.patch
 **WHY:** OpenITMS-SMB hướng tới IT doanh nghiệp VN nhưng bộ chọn ngôn ngữ chưa có tiếng Việt.
 **WHAT:** Thêm `web/src/lang/vi.js` (dịch full 538/538 key từ en.js, giữ nguyên placeholder/comment);

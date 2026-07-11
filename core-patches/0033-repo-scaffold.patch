@@ -1,0 +1,58 @@
+# PATCH: 0033-repo-scaffold
+# WHY: Repo local moi tao (0008) trong tron -> user khong biet bat dau tu dau. Can co san README +
+#      folder mau (scripts/playbooks/deploys) de dinh huong.
+# WHAT: quickwin_gitea.go: sau CreateRepo chay NEN (goroutine + ctx rieng 60s) scaffoldRepo() PutFile
+#       README.md + scripts/ + playbooks/ + deploys/ (dung PutFile 0029). Async de khong chan tao
+#       project (Gitea lanh commit cham). Non-fatal, chi log neu fail.
+# SPEC: docs/L2-specs/core-patches/0033-repo-scaffold.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/quickwin_gitea.go b/api/projects/quickwin_gitea.go
+index f5b0c21..f9b2b57 100644
+--- a/api/projects/quickwin_gitea.go
++++ b/api/projects/quickwin_gitea.go
+@@ -45,6 +45,10 @@ func quickwinAutoRepo(store db.Store, project db.Project, noneKeyID int) {
+ 		return
+ 	}
+ 
++	// Scaffold: README + folder sẵn (scripts/deploys/playbooks) để user không bắt đầu từ repo trống.
++	// Chạy nền + context riêng: nhiều commit Gitea (chậm khi lạnh) không được chặn tạo project.
++	go scaffoldRepo(c, org, slug, project.Name)
++
+ 	// Semaphore clone bằng HTTP + token nhúng (SSHKey None). Token làm username.
+ 	gitURL := injectToken(repo.CloneURL, token)
+ 	if _, err := store.CreateRepository(db.Repository{
+@@ -60,6 +64,33 @@ func quickwinAutoRepo(store db.Store, project db.Project, noneKeyID int) {
+ 	log.Infof("quickwin: project %d → repo local Gitea %s", project.ID, repo.FullName)
+ }
+ 
++// scaffoldRepo seed file khởi tạo cho repo local: README + folder sẵn (git không track folder rỗng
++// nên mỗi folder có 1 README.md). Chạy nền với context riêng (nhiều commit tuần tự, Gitea lạnh chậm).
++// Non-fatal: lỗi từng file chỉ log.
++func scaffoldRepo(c *giteamanager.Client, org, slug, projectName string) {
++	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
++	defer cancel()
++	files := map[string]string{
++		"README.md": "# " + projectName + "\n\n" +
++			"Repo local (Gitea) của project **" + projectName + "** trên OpenITMS.\n\n" +
++			"Đặt script/playbook để chạy qua Task Template ở đây. Cấu trúc gợi ý:\n\n" +
++			"- `scripts/` — script Bash/PowerShell/Python chạy trực tiếp.\n" +
++			"- `playbooks/` — Ansible playbook (`.yml`).\n" +
++			"- `deploys/` — cấu hình/manifest triển khai.\n\n" +
++			"> Có thể tạo/sửa file ngay trên OpenITMS: form Task Template → ô script filename → " +
++			"nút **New / Edit file** (lưu là commit thẳng vào repo này).\n",
++		"scripts/README.md":   "# scripts\n\nScript Bash/PowerShell/Python chạy trực tiếp qua Task Template.\n",
++		"playbooks/README.md": "# playbooks\n\nAnsible playbook (`.yml`). Điền ô playbook filename khi tạo Task Template.\n",
++		"deploys/README.md":   "# deploys\n\nCấu hình/manifest triển khai (deploy).\n",
++	}
++	for path, content := range files {
++		if _, err := c.PutFile(ctx, org, slug, "main", path, content,
++			"Scaffold "+path+" via OpenITMS"); err != nil {
++			log.WithError(err).Warnf("quickwin: scaffold %s fail", path)
++		}
++	}
++}
++
+ // injectToken chèn token vào clone URL để clone HTTP không cần nhập mật khẩu.
+ func injectToken(cloneURL, token string) string {
+ 	u, err := url.Parse(cloneURL)

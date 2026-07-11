@@ -156,6 +156,35 @@ func (c *Client) GetFile(ctx context.Context, org, repo, branch, path string) (c
 	return string(raw), fc.SHA, true, nil
 }
 
+// DirEntry — 1 mục trong thư mục repo (file hoặc dir).
+type DirEntry struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	Type string `json:"type"` // "file" | "dir"
+}
+
+// ListDir liệt kê nội dung 1 thư mục trong repo tại branch (path="" = gốc repo).
+// Thư mục chưa tồn tại (404) → trả danh sách rỗng, không lỗi.
+func (c *Client) ListDir(ctx context.Context, org, repo, branch, path string) ([]DirEntry, error) {
+	p := "/api/v1/repos/" + org + "/" + repo + "/contents/" + escapePath(path) + "?ref=" + url.QueryEscape(branch)
+	resp, err := c.do(ctx, http.MethodGet, p, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return []DirEntry{}, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, apiErr("ListDir", resp)
+	}
+	var entries []DirEntry
+	if err := json.NewDecoder(resp.Body).Decode(&entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
 // PutFile tạo mới hoặc cập nhật 1 file (1 commit). Tự phát hiện file đã có để chọn
 // POST (tạo) / PUT (update, kèm sha). Trả HTML URL của commit để UI mở xem.
 func (c *Client) PutFile(ctx context.Context, org, repo, branch, path, content, message string) (htmlURL string, err error) {
