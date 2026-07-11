@@ -3,6 +3,13 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-11 — 0031-vietnamese-language.patch
+**WHY:** OpenITMS-SMB hướng tới IT doanh nghiệp VN nhưng bộ chọn ngôn ngữ chưa có tiếng Việt.
+**WHAT:** Thêm `web/src/lang/vi.js` (dịch full 538/538 key từ en.js, giữ nguyên placeholder/comment);
+đăng ký `vi: 'Tiếng Việt'` vào map `LANGUAGES` trong `App.vue` (hiện trong switcher); thêm cờ Việt Nam
+`web/public/flags/vi.svg`. `vi.js` tự load qua `require.context` (index.js không cần sửa).
+Verify E2E: set lang=vi → UI dịch (Lịch sử/Thống kê/Hoạt động/Cài đặt); flag served 200. Spec 0031.
+
 ## 2026-07-11 — 0030-discovery-separate-inventory.patch
 **WHY:** Network Discovery đang trộn máy remote vào inventory local "Máy host (WinRS)" (dùng
 `invs[0]` = 127.0.0.1). Máy host mặc định phải hiểu là máy local; máy discovery phải vào inventory riêng.
