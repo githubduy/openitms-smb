@@ -167,6 +167,15 @@ func migrate(db *sql.DB) error {
 			k VARCHAR(64) PRIMARY KEY,
 			v VARCHAR(255)
 		) ENGINE=InnoDB`,
+		// Facts linh hoạt: network/route/user/group/dns/env/ntp/domain/profile...
+		`CREATE TABLE IF NOT EXISTS di_device_fact (
+			device_id BIGINT NOT NULL,
+			category  VARCHAR(32) NOT NULL,
+			name      VARCHAR(512) NOT NULL,
+			detail    TEXT,
+			INDEX (device_id, category),
+			FOREIGN KEY (device_id) REFERENCES di_device(id) ON DELETE CASCADE
+		) ENGINE=InnoDB`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {

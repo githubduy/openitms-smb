@@ -36,8 +36,14 @@ func storeHost(db *sql.DB, inv *HostInventory) (int64, error) {
 	oldSvc := countRows(tx, "di_device_software", id) // dùng chung helper countRows
 	_ = oldSvc
 
-	for _, t := range []string{"di_device_software", "di_device_service", "di_device_patch"} {
+	for _, t := range []string{"di_device_software", "di_device_service", "di_device_patch", "di_device_fact"} {
 		if _, err := tx.Exec("DELETE FROM "+t+" WHERE device_id=?", id); err != nil {
+			return 0, err
+		}
+	}
+	for _, f := range inv.Facts {
+		if _, err := tx.Exec(`INSERT INTO di_device_fact (device_id, category, name, detail) VALUES (?,?,?,?)`,
+			id, f.Category, f.Name, f.Detail); err != nil {
 			return 0, err
 		}
 	}

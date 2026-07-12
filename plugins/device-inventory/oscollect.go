@@ -39,11 +39,21 @@ if(-not $oq){$oq=(Get-Command osqueryi.exe -EA SilentlyContinue).Source}
 if(-not $oq){foreach($p in @('C:\Program Files\osquery\osqueryi.exe','C:\ProgramData\osquery\osqueryi.exe')){if(Test-Path $p){$oq=$p;break}}}
 ` + deploy + `if(-not $oq){Write-Output '@@ERROR osqueryi not found';exit}
 function Q($s){& $oq --json $s}
+function J($a){$j=@($a)|ConvertTo-Json -Compress -Depth 4;if(-not $j){'[]'}elseif($j[0] -ne '['){"[$j]"}else{$j}}
 Write-Output '@@system';Q 'SELECT hostname,cpu_brand,hardware_vendor,hardware_model FROM system_info'
 Write-Output '@@os';Q 'SELECT name,version,build FROM os_version'
 Write-Output '@@software';Q 'SELECT name,version FROM programs'
 Write-Output '@@services';Q 'SELECT name,status,start_type FROM services'
 Write-Output '@@patches';Q 'SELECT hotfix_id FROM patches'
+Write-Output '@@network';Q 'SELECT interface,address,mask FROM interface_addresses'
+Write-Output '@@routes';Q 'SELECT destination,gateway,interface,metric FROM routes'
+Write-Output '@@users';Q 'SELECT username,description FROM users'
+Write-Output '@@groups';Q 'SELECT groupname FROM groups'
+Write-Output '@@dns';J (Get-DnsClientServerAddress -AddressFamily IPv4 -EA SilentlyContinue | Select-Object -Expand ServerAddresses -Unique | ForEach-Object {@{name="$_"}})
+Write-Output '@@env';J ([Environment]::GetEnvironmentVariables('Machine').GetEnumerator() | ForEach-Object {@{name="$($_.Key)";detail="$($_.Value)"}})
+Write-Output '@@ntp';J ((((Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Parameters' -EA SilentlyContinue).NtpServer) -split '[ ,]' | Where-Object {$_ -and $_ -notmatch '^0x'} | ForEach-Object {@{name="$_"}}))
+Write-Output '@@domain';J (@{name="$((Get-CimInstance Win32_ComputerSystem -EA SilentlyContinue).Domain)"})
+Write-Output '@@profiles';J (Get-CimInstance Win32_UserProfile -EA SilentlyContinue | Where-Object {-not $_.Special} | ForEach-Object {@{name="$(Split-Path $_.LocalPath -Leaf)";detail="$($_.LocalPath)"}})
 Write-Output '@@end'`
 }
 
@@ -58,6 +68,7 @@ type HostInventory struct {
 	Software  []Software
 	Services  []Service
 	Patches   []Patch
+	Facts     []DeviceFact
 }
 
 // collectHost chạy osquery trên host qua WinRS (cert auth) rồi parse.
@@ -192,6 +203,59 @@ func parseOsquery(stdout string) (*HostInventory, error) {
 	for _, p := range pt {
 		if p.KB != "" {
 			inv.Patches = append(inv.Patches, Patch{KB: p.KB})
+		}
+	}
+
+	inv.Facts = []DeviceFact{}
+	addFact := func(cat, name, detail string) {
+		if strings.TrimSpace(name) != "" {
+			inv.Facts = append(inv.Facts, DeviceFact{Category: cat, Name: strings.TrimSpace(name), Detail: strings.TrimSpace(detail)})
+		}
+	}
+
+	var net []struct{ Interface, Address, Mask string }
+	_ = json.Unmarshal([]byte(sections["network"]), &net)
+	for _, n := range net {
+		if n.Address == "" || strings.HasPrefix(n.Address, "127.") || strings.HasPrefix(n.Address, "::1") {
+			continue
+		}
+		d := n.Address
+		if n.Mask != "" {
+			d += " / " + n.Mask
+		}
+		addFact("network", n.Interface, d)
+	}
+
+	var rt []struct{ Destination, Gateway, Interface, Metric string }
+	_ = json.Unmarshal([]byte(sections["routes"]), &rt)
+	for _, r := range rt {
+		addFact("route", r.Destination, "via "+r.Gateway+" dev "+r.Interface)
+	}
+
+	var usr []struct{ Username, Description string }
+	_ = json.Unmarshal([]byte(sections["users"]), &usr)
+	for _, u := range usr {
+		addFact("user", u.Username, u.Description)
+	}
+
+	var grp []struct {
+		Groupname string `json:"groupname"`
+	}
+	_ = json.Unmarshal([]byte(sections["groups"]), &grp)
+	for _, g := range grp {
+		addFact("group", g.Groupname, "")
+	}
+
+	// dns/env/ntp/domain/profile — PowerShell emit {name, detail?}.
+	for _, cat := range []string{"dns", "env", "ntp", "domain", "profile"} {
+		key := cat
+		if cat == "profile" {
+			key = "profiles"
+		}
+		var fs []struct{ Name, Detail string }
+		_ = json.Unmarshal([]byte(sections[key]), &fs)
+		for _, f := range fs {
+			addFact(cat, f.Name, f.Detail)
 		}
 	}
 	return inv, nil

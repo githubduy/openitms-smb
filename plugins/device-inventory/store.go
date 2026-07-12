@@ -53,6 +53,11 @@ type Patch struct {
 	KB        string `json:"kb"`
 	Installed string `json:"installed"`
 }
+type DeviceFact struct {
+	Category string `json:"category"`
+	Name     string `json:"name"`
+	Detail   string `json:"detail"`
+}
 type Change struct {
 	TS     time.Time `json:"ts"`
 	Kind   string    `json:"kind"`
@@ -64,6 +69,7 @@ type DeviceDetail struct {
 	Software  []Software       `json:"software"`
 	Services  []Service        `json:"services"`
 	Patches   []Patch          `json:"patches"`
+	Facts     []DeviceFact     `json:"facts,omitempty"`
 	Ifaces    []SwitchIface    `json:"interfaces,omitempty"`
 	Neighbors []SwitchNeighbor `json:"neighbors,omitempty"`
 	FDB       []SwitchFDB      `json:"fdb,omitempty"`
@@ -136,6 +142,21 @@ func getDevice(db *sql.DB, id int64) (*DeviceDetail, error) {
 			return nil, err
 		}
 		det.Patches = append(det.Patches, p)
+	}
+
+	det.Facts = []DeviceFact{}
+	fRows, err := db.Query(`SELECT category, name, IFNULL(detail,'') FROM di_device_fact
+		WHERE device_id=? ORDER BY category, name`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer fRows.Close()
+	for fRows.Next() {
+		var f DeviceFact
+		if err := fRows.Scan(&f.Category, &f.Name, &f.Detail); err != nil {
+			return nil, err
+		}
+		det.Facts = append(det.Facts, f)
 	}
 	return det, nil
 }
