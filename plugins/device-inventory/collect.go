@@ -11,13 +11,70 @@ import (
 )
 
 type collectHostReq struct {
+	ID         int64  `json:"id"`   // != 0 = thu theo kết nối đã lưu của device
 	Host       string `json:"host"`
 	Port       int    `json:"port"`
 	Cert       string `json:"cert"` // tên file .pem (cert+key) trong ./certs
 	Key        string `json:"key"`  // (optional) file key riêng
 	Timeout    int    `json:"timeout"`
-	AutoDeploy *bool  `json:"auto_deploy"`  // nil = mặc định true
-	Local      bool   `json:"local"`        // true = thu server OpenITMS trực tiếp (không WinRS/cert)
+	AutoDeploy *bool  `json:"auto_deploy"` // nil = mặc định true
+	Local      bool   `json:"local"`       // true = thu server OpenITMS trực tiếp (không WinRS/cert)
+}
+
+// collectByID thu 1 device dùng THÔNG TIN KẾT NỐI đã lưu (dispatch theo conn_type) → lưu CMDB.
+func (p *plugin) collectByID(id int64, autoDeploy bool) (*pluginv1.HttpResponse, error) {
+	c, err := loadDeviceConn(p.db, id)
+	if err != nil {
+		return jsonResp(404, map[string]string{"error": "không có device"}), nil
+	}
+	switch c.ConnType {
+	case "local":
+		inv, e := collectHostLocal(autoDeploy, os.Getenv("QUICKWIN_OSQUERY_MSI"), 300)
+		if e != nil {
+			return jsonResp(502, map[string]string{"error": e.Error()}), nil
+		}
+		inv.Host = c.Host
+		did, e := storeHost(p.db, inv)
+		if e != nil {
+			return jsonResp(500, map[string]string{"error": e.Error()}), nil
+		}
+		return jsonResp(200, map[string]any{"ok": true, "device_id": did, "kind": "host"}), nil
+	case "winrs":
+		certPEM, keyPEM, e := p.resolveCert(c.ConnCert, "")
+		if e != nil {
+			return jsonResp(400, map[string]string{"error": e.Error()}), nil
+		}
+		port := c.ConnPort
+		if port == 0 {
+			port = 5986
+		}
+		inv, e := collectHost(HostCollectConfig{
+			Host: c.Host, Port: port, CertPEM: certPEM, KeyPEM: keyPEM, Timeout: 300,
+			AutoDeploy: autoDeploy, MSIURL: os.Getenv("QUICKWIN_OSQUERY_MSI"),
+		})
+		if e != nil {
+			return jsonResp(502, map[string]string{"error": e.Error()}), nil
+		}
+		did, e := storeHost(p.db, inv)
+		if e != nil {
+			return jsonResp(500, map[string]string{"error": e.Error()}), nil
+		}
+		return jsonResp(200, map[string]any{"ok": true, "device_id": did, "kind": "host"}), nil
+	case "snmp":
+		inv, e := collectSwitch(SNMPConfig{
+			Host: c.Host, Port: uint16(c.ConnPort), Version: c.SNMPVersion, Community: c.SNMPCommunity,
+		})
+		if e != nil {
+			return jsonResp(502, map[string]string{"error": e.Error()}), nil
+		}
+		did, e := storeSwitch(p.db, inv)
+		if e != nil {
+			return jsonResp(500, map[string]string{"error": e.Error()}), nil
+		}
+		return jsonResp(200, map[string]any{"ok": true, "device_id": did, "kind": "switch"}), nil
+	default:
+		return jsonResp(400, map[string]string{"error": "device chưa có thông tin kết nối (conn_type). Sửa device để thêm."}), nil
+	}
 }
 
 // handleCollect thu 1 host qua osquery/WinRS rồi lưu CMDB.
@@ -32,6 +89,9 @@ func (p *plugin) handleCollect(_ context.Context, req *pluginv1.HttpRequest) (*p
 	autoDeploy := true
 	if r.AutoDeploy != nil {
 		autoDeploy = *r.AutoDeploy
+	}
+	if r.ID != 0 {
+		return p.collectByID(r.ID, autoDeploy)
 	}
 
 	var inv *HostInventory

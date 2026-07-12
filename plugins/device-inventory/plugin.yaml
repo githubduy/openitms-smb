@@ -13,6 +13,14 @@ routes:
   - method: GET
     path: device
     description: Device detail (facts) by id
+  - method: POST
+    path: device
+    description: Add/update a device with its connection
+    require_admin: true
+  - method: DELETE
+    path: device
+    description: Delete a device by id
+    require_admin: true
   - method: GET
     path: changes
     description: Change history for a device by id

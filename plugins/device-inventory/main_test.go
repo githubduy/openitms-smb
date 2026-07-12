@@ -53,12 +53,16 @@ func TestMetadataMatchesManifest(t *testing.T) {
 	}
 	want := map[string]bool{"devices": true, "device": true, "changes": true,
 		"collect": true, "collect-switch": true, "export": true}
-	if len(md.Routes) != len(want) {
-		t.Fatalf("số route = %d, muốn %d", len(md.Routes), len(want))
-	}
+	seen := map[string]bool{}
 	for _, r := range md.Routes {
+		seen[r.Path] = true
 		if !want[r.Path] {
 			t.Errorf("route lạ: %s", r.Path)
+		}
+	}
+	for path := range want {
+		if !seen[path] {
+			t.Errorf("thiếu route: %s", path)
 		}
 	}
 }

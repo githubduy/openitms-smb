@@ -38,6 +38,8 @@ func (p *plugin) Metadata(_ context.Context) (*pluginv1.Metadata, error) {
 		Routes: []*pluginv1.Route{
 			{Method: "GET", Path: "devices", Description: "List inventoried devices"},
 			{Method: "GET", Path: "device", Description: "Device detail (facts) by id"},
+			{Method: "POST", Path: "device", Description: "Add/update a device with its connection", RequireAdmin: true},
+			{Method: "DELETE", Path: "device", Description: "Delete a device by id", RequireAdmin: true},
 			{Method: "GET", Path: "changes", Description: "Change history for a device by id"},
 			{Method: "POST", Path: "collect", Description: "Collect inventory from a host via osquery over WinRS", RequireAdmin: true},
 			{Method: "POST", Path: "collect-switch", Description: "Collect a network switch via SNMP (v2c/v3)", RequireAdmin: true},
@@ -55,7 +57,14 @@ func (p *plugin) HandleRequest(ctx context.Context, req *pluginv1.HttpRequest) (
 	case "devices":
 		return p.handleDevices()
 	case "device":
-		return p.handleDevice(req)
+		switch req.GetMethod() {
+		case "POST":
+			return p.handleAddDevice(req)
+		case "DELETE":
+			return p.handleDeleteDevice(req)
+		default:
+			return p.handleDevice(req)
+		}
 	case "changes":
 		return p.handleChanges(req)
 	case "collect":

@@ -129,7 +129,12 @@ func migrate(db *sql.DB) error {
 			ADD COLUMN IF NOT EXISTS firmware VARCHAR(255),
 			ADD COLUMN IF NOT EXISTS location VARCHAR(255),
 			ADD COLUMN IF NOT EXISTS descr    TEXT,
-			ADD COLUMN IF NOT EXISTS uptime   VARCHAR(64)`,
+			ADD COLUMN IF NOT EXISTS uptime   VARCHAR(64),
+			ADD COLUMN IF NOT EXISTS conn_type      VARCHAR(16) NOT NULL DEFAULT '',
+			ADD COLUMN IF NOT EXISTS conn_cert      VARCHAR(255),
+			ADD COLUMN IF NOT EXISTS conn_port      INT,
+			ADD COLUMN IF NOT EXISTS snmp_version   VARCHAR(8),
+			ADD COLUMN IF NOT EXISTS snmp_community VARCHAR(255)`,
 		`CREATE TABLE IF NOT EXISTS di_switch_iface (
 			device_id  BIGINT NOT NULL,
 			if_index   INT NOT NULL,
