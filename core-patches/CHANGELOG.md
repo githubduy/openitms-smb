@@ -3,6 +3,14 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-11 — 0037-local-self-collect.patch
+**WHY:** Phần mềm chạy local nên inventory seed "Máy host (WinRS)" 127.0.0.1 (đi vòng WinRS tới
+loopback, thực tế fail AccessDenied) là thừa. Server nên tự kiểm kê trực tiếp.
+**WHAT:** `quickwin_seed.go` bỏ seed inventory 127.0.0.1. `DeviceInventory.vue` +nút "Thu server này
+(local)" → POST `/collect {local:true}` (plugin device-inventory chạy osquery LOCAL trên server, không
+WinRS/cert). +i18n `devCollectLocal*`. Verify E2E: nút hiện; local collect đi đường local exec (không
+WinRS, 1.3s, osquery-not-found báo rõ). Spec 0037.
+
 ## 2026-07-11 — 0036-device-collect-host-ui.patch
 **WHY:** UI Devices (0035) chỉ thu được switch; cần nút thu HOST (osquery) từ giao diện để dùng Phase 5
 (plugin tự cài osquery khi máy đích chưa có).

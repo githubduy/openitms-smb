@@ -1,0 +1,104 @@
+# PATCH: 0037-local-self-collect
+# WHY: Phan mem chay local nen inventory seed "May host (WinRS)" 127.0.0.1 (di vong WinRS toi loopback)
+#      la thua. Server nen tu kiem ke truc tiep (local).
+# WHAT: quickwin_seed.go bo seed inventory 127.0.0.1. DeviceInventory.vue +nut "Thu server nay (local)"
+#       -> POST /collect {local:true} (plugin chay osquery local, khong WinRS/cert). +i18n devCollectLocal*.
+# SPEC: docs/L2-specs/core-patches/0037-local-self-collect.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/quickwin_seed.go b/api/projects/quickwin_seed.go
+index a1a488b..b61c222 100644
+--- a/api/projects/quickwin_seed.go
++++ b/api/projects/quickwin_seed.go
+@@ -69,14 +69,9 @@ func SeedHostProjectIfEmpty(store db.Store, accessKeyService server.AccessKeySer
+ 
+ 	quickwinAutoRepo(store, project, noneKey.ID) // PATCH 0008 — repo Gitea local
+ 
+-	if _, err = store.CreateInventory(db.Inventory{
+-		Name:      "Máy host (WinRS)",
+-		ProjectID: project.ID,
+-		Type:      db.InventoryWinRS,
+-		Inventory: "# Máy chính chạy OpenITMS. Đặt cert WinRM vào certs/host.pem rồi sửa dòng dưới.\n127.0.0.1 cert=host.pem",
+-	}); err != nil {
+-		log.WithError(err).Warn("QUICKWIN seed: tạo inventory WinRS thất bại")
+-	}
++	// PATCH 0037 — KHÔNG seed inventory "Máy host (WinRS)" 127.0.0.1 nữa: phần mềm chạy ngay trên
++	// máy đó, đi vòng WinRS tới loopback là thừa. Server tự kiểm kê qua "Thu server này (local)"
++	// trong CMDB (plugin device-inventory). Máy remote thêm qua enroll/discovery.
+ 
+ 	log.WithField("project_id", project.ID).Info("QUICKWIN seed: đã tạo project Host mặc định")
+ }
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index ead55c4..9439b35 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -34,6 +34,9 @@ export default {
+   refresh: 'Refresh',
+   devCollectSwitch: 'Collect a switch (SNMP)',
+   devCollectHost: 'Collect a host (osquery)',
++  devCollectLocal: 'Collect this server (local)',
++  devCollectLocalHint: 'Inventory the OpenITMS server itself, directly (no WinRS) — osquery runs '
++    + 'locally on the server.',
+   devAutoDeploy: 'Auto-install osquery if missing',
+   devAutoDeployHint: 'If the target has no osquery, download + install it (needs internet on the '
+     + 'target). Turn off for air-gapped hosts (install osquery manually first).',
+diff --git a/web/src/lang/vi.js b/web/src/lang/vi.js
+index b0896ff..91ee43b 100644
+--- a/web/src/lang/vi.js
++++ b/web/src/lang/vi.js
+@@ -34,6 +34,9 @@ export default {
+   refresh: 'Làm mới',
+   devCollectSwitch: 'Thu switch (SNMP)',
+   devCollectHost: 'Thu máy chủ (osquery)',
++  devCollectLocal: 'Thu server này (local)',
++  devCollectLocalHint: 'Kiểm kê chính máy chủ OpenITMS, trực tiếp (không WinRS) — osquery chạy '
++    + 'ngay trên server.',
+   devAutoDeploy: 'Tự cài osquery nếu chưa có',
+   devAutoDeployHint: 'Nếu máy đích chưa có osquery, tự tải + cài (máy đích cần internet). Tắt cho '
+     + 'máy air-gapped (cài osquery thủ công trước).',
+diff --git a/web/src/views/project/DeviceInventory.vue b/web/src/views/project/DeviceInventory.vue
+index 56a5018..c0fd33b 100644
+--- a/web/src/views/project/DeviceInventory.vue
++++ b/web/src/views/project/DeviceInventory.vue
+@@ -10,6 +10,13 @@
+       <v-btn small text :loading="loading" @click="loadDevices">
+         <v-icon left small>mdi-refresh</v-icon>{{ $t('refresh') }}
+       </v-btn>
++      <v-btn
++        small color="success" outlined class="ml-2"
++        :loading="localBusy" :title="$t('devCollectLocalHint')"
++        @click="collectLocal"
++      >
++        <v-icon left small>mdi-server</v-icon>{{ $t('devCollectLocal') }}
++      </v-btn>
+       <v-btn small color="primary" outlined class="ml-2" @click="openCollectHost">
+         <v-icon left small>mdi-microsoft-windows</v-icon>{{ $t('devCollectHost') }}
+       </v-btn>
+@@ -336,6 +343,7 @@ export default {
+     return {
+       devices: [],
+       loading: false,
++      localBusy: false,
+       error: null,
+       detail: {
+         show: false, data: null, changes: [], tab: 0,
+@@ -422,6 +430,19 @@ export default {
+       }
+     },
+ 
++    async collectLocal() {
++      this.localBusy = true;
++      this.error = null;
++      try {
++        await axios.post(`${API}/collect`, { local: true, auto_deploy: true });
++        await this.loadDevices();
++      } catch (err) {
++        this.error = getErrorMessage(err);
++      } finally {
++        this.localBusy = false;
++      }
++    },
++
+     async openCollectHost() {
+       this.host.error = null;
+       this.host.show = true;
