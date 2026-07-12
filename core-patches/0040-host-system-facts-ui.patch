@@ -1,0 +1,123 @@
+# PATCH: 0040-host-system-facts-ui
+# WHY: Host thu them facts (network/route/dns/user/group/env/ntp/domain/profile) - can hien tren UI.
+# WHAT: DeviceInventory.vue: +tab "He thong" o detail host, hien facts nhom theo category
+#       (factCategories + factsIn). +i18n devTabSystem/fact*.
+# SPEC: docs/L2-specs/core-patches/0040-host-system-facts-ui.md
+# BASELINE: v2.18.16
+#
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index e4eece7..9f7b47a 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -69,7 +69,18 @@ export default {
+   devTabServices: 'Services',
+   devTabPatches: 'Patches',
+   devTabChanges: 'Changes',
++  devTabSystem: 'System',
+   devNoChanges: 'No changes recorded yet.',
++  devNoFacts: 'No system details collected yet.',
++  factNetwork: 'Network (IP)',
++  factRoute: 'Routes',
++  factDns: 'DNS servers',
++  factDomain: 'Domain',
++  factNtp: 'NTP server',
++  factUser: 'Users',
++  factGroup: 'Groups',
++  factProfile: 'User profiles',
++  factEnv: 'Environment variables',
+ 
+   // QUICKWIN — Network Discovery
+   note: 'Note',
+diff --git a/web/src/lang/vi.js b/web/src/lang/vi.js
+index 2c16b50..478b860 100644
+--- a/web/src/lang/vi.js
++++ b/web/src/lang/vi.js
+@@ -69,7 +69,18 @@ export default {
+   devTabServices: 'Dịch vụ',
+   devTabPatches: 'Bản vá',
+   devTabChanges: 'Thay đổi',
++  devTabSystem: 'Hệ thống',
+   devNoChanges: 'Chưa ghi nhận thay đổi.',
++  devNoFacts: 'Chưa thu chi tiết hệ thống.',
++  factNetwork: 'Mạng (IP)',
++  factRoute: 'Bảng route',
++  factDns: 'DNS server',
++  factDomain: 'Domain',
++  factNtp: 'NTP server',
++  factUser: 'Người dùng',
++  factGroup: 'Nhóm',
++  factProfile: 'User profile',
++  factEnv: 'Biến môi trường',
+ 
+   // QUICKWIN — Network Discovery
+   note: 'Ghi chú',
+diff --git a/web/src/views/project/DeviceInventory.vue b/web/src/views/project/DeviceInventory.vue
+index b3d0372..0e1da17 100644
+--- a/web/src/views/project/DeviceInventory.vue
++++ b/web/src/views/project/DeviceInventory.vue
+@@ -126,6 +126,7 @@
+               <v-tab>{{ $t('devTabSoftware') }} ({{ (detail.data.software || []).length }})</v-tab>
+               <v-tab>{{ $t('devTabServices') }} ({{ (detail.data.services || []).length }})</v-tab>
+               <v-tab>{{ $t('devTabPatches') }} ({{ (detail.data.patches || []).length }})</v-tab>
++              <v-tab>{{ $t('devTabSystem') }} ({{ (detail.data.facts || []).length }})</v-tab>
+             </template>
+             <v-tab>{{ $t('devTabChanges') }}</v-tab>
+           </v-tabs>
+@@ -211,6 +212,26 @@
+                   </tbody>
+                 </v-simple-table>
+               </v-tab-item>
++              <v-tab-item>
++                <template v-for="cat in factCategories">
++                  <div v-if="factsIn(cat.key).length" :key="cat.key">
++                    <div class="subtitle-2 mt-3">
++                      {{ cat.label }} ({{ factsIn(cat.key).length }})
++                    </div>
++                    <v-simple-table dense>
++                      <tbody>
++                        <tr v-for="(f, i) in factsIn(cat.key)" :key="i">
++                          <td style="width: 40%;">{{ f.name }}</td>
++                          <td class="grey--text">{{ f.detail }}</td>
++                        </tr>
++                      </tbody>
++                    </v-simple-table>
++                  </div>
++                </template>
++                <div v-if="!(detail.data.facts || []).length" class="grey--text pa-2">
++                  {{ $t('devNoFacts') }}
++                </div>
++              </v-tab-item>
+             </template>
+             <v-tab-item>
+               <v-simple-table dense>
+@@ -340,6 +361,19 @@ export default {
+       if (f.conn_type === 'winrs') return !!f.conn_cert;
+       return true;
+     },
++    factCategories() {
++      return [
++        { key: 'network', label: this.$t('factNetwork') },
++        { key: 'route', label: this.$t('factRoute') },
++        { key: 'dns', label: this.$t('factDns') },
++        { key: 'domain', label: this.$t('factDomain') },
++        { key: 'ntp', label: this.$t('factNtp') },
++        { key: 'user', label: this.$t('factUser') },
++        { key: 'group', label: this.$t('factGroup') },
++        { key: 'profile', label: this.$t('factProfile') },
++        { key: 'env', label: this.$t('factEnv') },
++      ];
++    },
+   },
+ 
+   async created() {
+@@ -352,6 +386,10 @@ export default {
+       EventBus.$emit('i-show-drawer');
+     },
+ 
++    factsIn(cat) {
++      return (this.detail.data.facts || []).filter((f) => f.category === cat);
++    },
++
+     async loadSched() {
+       try {
+         const { data } = await axios.get(`${API}/config`);

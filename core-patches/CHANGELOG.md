@@ -3,6 +3,13 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-11 — 0040-host-system-facts-ui.patch
+**WHY:** Host thu thêm facts (network/route/dns/domain/ntp/user/group/profile/env) — cần hiển thị UI.
+**WHAT:** `DeviceInventory.vue`: +tab "Hệ thống" ở detail host, hiện facts nhóm theo category
+(`factCategories` + method `factsIn`). +i18n `devTabSystem`/`fact*`. Backend (plugin, commit riêng):
+`di_device_fact` + osquery (network/route/user/group) + PowerShell (dns/env/ntp/domain/profile).
+Verify E2E: local collect → tab Hệ thống hiện network=3/route=18/user=14/.../env=20. Spec 0040.
+
 ## 2026-07-11 — 0039-auto-collect-ui.patch
 **WHY:** Thu định kỳ tự động không nhập creds lại. Kết nối đã lưu trong di_device (0038) → UI chỉ cần
 bật/tắt scheduler + chu kỳ.
