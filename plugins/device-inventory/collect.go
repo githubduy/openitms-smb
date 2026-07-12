@@ -16,7 +16,8 @@ type collectHostReq struct {
 	Cert       string `json:"cert"` // tên file .pem (cert+key) trong ./certs
 	Key        string `json:"key"`  // (optional) file key riêng
 	Timeout    int    `json:"timeout"`
-	AutoDeploy *bool  `json:"auto_deploy"` // nil = mặc định true
+	AutoDeploy *bool  `json:"auto_deploy"`  // nil = mặc định true
+	Local      bool   `json:"local"`        // true = thu server OpenITMS trực tiếp (không WinRS/cert)
 }
 
 // handleCollect thu 1 host qua osquery/WinRS rồi lưu CMDB.
@@ -25,12 +26,6 @@ func (p *plugin) handleCollect(_ context.Context, req *pluginv1.HttpRequest) (*p
 	if err := json.Unmarshal(req.GetBody(), &r); err != nil {
 		return jsonResp(400, map[string]string{"error": "body JSON không hợp lệ: " + err.Error()}), nil
 	}
-	if r.Host == "" || r.Cert == "" {
-		return jsonResp(400, map[string]string{"error": "cần host và cert"}), nil
-	}
-	if r.Port == 0 {
-		r.Port = 5986
-	}
 	if r.Timeout <= 0 {
 		r.Timeout = 300 // auto-deploy MSI có thể lâu
 	}
@@ -38,14 +33,29 @@ func (p *plugin) handleCollect(_ context.Context, req *pluginv1.HttpRequest) (*p
 	if r.AutoDeploy != nil {
 		autoDeploy = *r.AutoDeploy
 	}
-	certPEM, keyPEM, err := p.resolveCert(r.Cert, r.Key)
-	if err != nil {
-		return jsonResp(400, map[string]string{"error": err.Error()}), nil
+
+	var inv *HostInventory
+	var err error
+	if r.Local {
+		// thu server OpenITMS trực tiếp (local osquery, không WinRS/cert).
+		inv, err = collectHostLocal(autoDeploy, os.Getenv("QUICKWIN_OSQUERY_MSI"), r.Timeout)
+	} else {
+		if r.Host == "" || r.Cert == "" {
+			return jsonResp(400, map[string]string{"error": "cần host và cert (hoặc local=true)"}), nil
+		}
+		if r.Port == 0 {
+			r.Port = 5986
+		}
+		var certPEM, keyPEM []byte
+		certPEM, keyPEM, err = p.resolveCert(r.Cert, r.Key)
+		if err != nil {
+			return jsonResp(400, map[string]string{"error": err.Error()}), nil
+		}
+		inv, err = collectHost(HostCollectConfig{
+			Host: r.Host, Port: r.Port, CertPEM: certPEM, KeyPEM: keyPEM, Timeout: r.Timeout,
+			AutoDeploy: autoDeploy, MSIURL: os.Getenv("QUICKWIN_OSQUERY_MSI"),
+		})
 	}
-	inv, err := collectHost(HostCollectConfig{
-		Host: r.Host, Port: r.Port, CertPEM: certPEM, KeyPEM: keyPEM, Timeout: r.Timeout,
-		AutoDeploy: autoDeploy, MSIURL: os.Getenv("QUICKWIN_OSQUERY_MSI"),
-	})
 	if err != nil {
 		return jsonResp(502, map[string]string{"error": err.Error()}), nil
 	}

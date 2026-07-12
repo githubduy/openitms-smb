@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -88,6 +89,35 @@ func collectHost(cfg HostCollectConfig) (*HostInventory, error) {
 		return nil, err
 	}
 	inv.Host = cfg.Host
+	return inv, nil
+}
+
+// collectHostLocal chạy osquery NGAY trên máy OpenITMS (không qua WinRS) — server tự kiểm kê chính mình.
+// Phần mềm chạy local nên đi vòng WinRS tới 127.0.0.1 là thừa; đây là kết nối trực tiếp.
+func collectHostLocal(autoDeploy bool, msiURL string, timeout int) (*HostInventory, error) {
+	if msiURL == "" {
+		msiURL = defaultOsqueryMSI
+	}
+	if timeout <= 0 {
+		timeout = 300
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	defer cancel()
+	ps := buildOsqueryPS(autoDeploy, msiURL)
+	out, _ := exec.CommandContext(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", ps).Output()
+	stdout := string(out)
+	if strings.Contains(stdout, "@@ERROR osqueryi not found") {
+		return nil, fmt.Errorf("osquery chưa có trên server OpenITMS + tự cài thất bại (cần internet tới pkg.osquery.io)")
+	}
+	inv, err := parseOsquery(stdout)
+	if err != nil {
+		return nil, err
+	}
+	if inv.Hostname != "" {
+		inv.Host = inv.Hostname
+	} else {
+		inv.Host = "localhost"
+	}
 	return inv, nil
 }
 
