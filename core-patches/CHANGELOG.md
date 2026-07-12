@@ -3,6 +3,16 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-11 — 0038-unify-device-model.patch
+**WHY:** User muốn gộp Inventory + CMDB thành 1 model quản lý: device = identity + kết nối + tài sản.
+Menu Inventory native và Thiết bị (CMDB) dễ nhầm.
+**WHAT:** `DeviceInventory.vue` thành hub thống nhất: nút "Thêm thiết bị" (host + conn_type
+local/winrs/snmp → lưu kết nối vào di_device + thu ngay), per-row Collect/Delete. `App.vue`: đổi menu
+Inventory native → "Máy đích (task)" + tooltip rõ (de-emphasize, giữ cho task/Ansible). +i18n.
+Backend (plugin đã commit riêng): di_device +cột conn_*, POST/DELETE /device, POST /collect {id}
+dispatch local/winrs/snmp. Verify E2E: add device (local/winrs/snmp) lưu+thu; per-row collect/delete;
+menu đổi tên. Spec 0038.
+
 ## 2026-07-11 — 0037-local-self-collect.patch
 **WHY:** Phần mềm chạy local nên inventory seed "Máy host (WinRS)" 127.0.0.1 (đi vòng WinRS tới
 loopback, thực tế fail AccessDenied) là thừa. Server nên tự kiểm kê trực tiếp.

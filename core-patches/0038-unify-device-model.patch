@@ -1,0 +1,418 @@
+# PATCH: 0038-unify-device-model
+# WHY: User muon gop Inventory + CMDB thanh 1 model quan ly: device = identity + ket noi + tai san.
+#      Menu Inventory native va Thiet bi (CMDB) de nham.
+# WHAT: DeviceInventory.vue thanh hub: nut "Them thiet bi" (host+conn_type local/winrs/snmp -> luu ket
+#       noi + thu ngay), per-row Collect/Delete (POST /device, /collect {id}, DELETE /device). App.vue:
+#       doi menu Inventory native -> "May dich (task)" + tooltip ro (de-emphasize, giu cho task/Ansible).
+#       +i18n devAdd*/devConn*/navTaskTargets.
+# SPEC: docs/L2-specs/core-patches/0038-unify-device-model.md
+# BASELINE: v2.18.16
+#
+diff --git a/web/src/App.vue b/web/src/App.vue
+index 4760598..885179b 100644
+--- a/web/src/App.vue
++++ b/web/src/App.vue
+@@ -1204,8 +1204,8 @@ export default {
+           },
+           {
+             key: 'inventory',
+-            icon: 'mdi-monitor-multiple',
+-            title: this.$t('inventory'),
++            icon: 'mdi-target',
++            title: this.$t('navTaskTargets'),
+             to: `${base}/inventory`,
+             testId: 'sidebar-inventory',
+           },
+@@ -1294,7 +1294,7 @@ export default {
+       return {
+         templates: this.$t('tooltipTemplates'),
+         schedule: this.$t('tooltipSchedule'),
+-        inventory: this.$t('tooltipInventory'),
++        inventory: this.$t('tooltipTaskTargets'),
+         winrs_console: this.$t('tooltipWinrsConsole'),
+         network_discovery: this.$t('tooltipNetworkDiscovery'),
+         devices: this.$t('tooltipDevices'),
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index 9439b35..ed495d4 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -37,6 +37,18 @@ export default {
+   devCollectLocal: 'Collect this server (local)',
+   devCollectLocalHint: 'Inventory the OpenITMS server itself, directly (no WinRS) — osquery runs '
+     + 'locally on the server.',
++  devAddDevice: 'Add device',
++  devSaveCollect: 'Save & collect',
++  devConnType: 'Connection',
++  devConnWinrs: 'Windows host (WinRS + certificate)',
++  devConnSnmp: 'Network switch (SNMP v2c)',
++  devConnLocal: 'This OpenITMS server (local)',
++  devAddHint: 'The connection is saved with the device — click Collect later to refresh without '
++    + 're-entering it.',
++  delete: 'Delete',
++  navTaskTargets: 'Task targets',
++  tooltipTaskTargets: 'Machines that Task Templates run on (WinRS Endpoints / Ansible inventory). '
++    + 'This is for running tasks — for device/asset inventory use "Devices (CMDB)".',
+   devAutoDeploy: 'Auto-install osquery if missing',
+   devAutoDeployHint: 'If the target has no osquery, download + install it (needs internet on the '
+     + 'target). Turn off for air-gapped hosts (install osquery manually first).',
+diff --git a/web/src/lang/vi.js b/web/src/lang/vi.js
+index 91ee43b..2c671b1 100644
+--- a/web/src/lang/vi.js
++++ b/web/src/lang/vi.js
+@@ -35,6 +35,18 @@ export default {
+   devCollectSwitch: 'Thu switch (SNMP)',
+   devCollectHost: 'Thu máy chủ (osquery)',
+   devCollectLocal: 'Thu server này (local)',
++  devAddDevice: 'Thêm thiết bị',
++  devSaveCollect: 'Lưu & thu',
++  devConnType: 'Kết nối',
++  devConnWinrs: 'Máy Windows (WinRS + chứng chỉ)',
++  devConnSnmp: 'Switch mạng (SNMP v2c)',
++  devConnLocal: 'Máy chủ OpenITMS này (local)',
++  devAddHint: 'Thông tin kết nối được lưu cùng thiết bị — bấm Thu sau để cập nhật lại mà không cần '
++    + 'nhập lại.',
++  delete: 'Xoá',
++  navTaskTargets: 'Máy đích (task)',
++  tooltipTaskTargets: 'Các máy mà Task Template chạy lên (WinRS Endpoints / Ansible inventory). '
++    + 'Đây là để CHẠY TASK — còn kiểm kê thiết bị/tài sản thì dùng "Thiết bị (CMDB)".',
+   devCollectLocalHint: 'Kiểm kê chính máy chủ OpenITMS, trực tiếp (không WinRS) — osquery chạy '
+     + 'ngay trên server.',
+   devAutoDeploy: 'Tự cài osquery nếu chưa có',
+diff --git a/web/src/views/project/DeviceInventory.vue b/web/src/views/project/DeviceInventory.vue
+index c0fd33b..0d1338d 100644
+--- a/web/src/views/project/DeviceInventory.vue
++++ b/web/src/views/project/DeviceInventory.vue
+@@ -17,11 +17,8 @@
+       >
+         <v-icon left small>mdi-server</v-icon>{{ $t('devCollectLocal') }}
+       </v-btn>
+-      <v-btn small color="primary" outlined class="ml-2" @click="openCollectHost">
+-        <v-icon left small>mdi-microsoft-windows</v-icon>{{ $t('devCollectHost') }}
+-      </v-btn>
+-      <v-btn small color="primary" outlined class="ml-2" @click="openCollect">
+-        <v-icon left small>mdi-lan-connect</v-icon>{{ $t('devCollectSwitch') }}
++      <v-btn small color="primary" class="ml-2" @click="openAddDevice">
++        <v-icon left small>mdi-plus</v-icon>{{ $t('devAddDevice') }}
+       </v-btn>
+     </v-toolbar>
+     <v-divider />
+@@ -54,7 +51,17 @@
+             <td>{{ [d.vendor, d.model].filter(Boolean).join(' ') || '—' }}</td>
+             <td>{{ d.kind === 'switch' ? (d.firmware || '—') : (d.os || '—') }}</td>
+             <td>{{ d.last_seen ? d.last_seen.replace('T', ' ').slice(0, 16) : '—' }}</td>
+-            <td><v-icon small>mdi-chevron-right</v-icon></td>
++            <td @click.stop>
++              <v-btn
++                icon small :loading="rowBusy === d.id" :title="$t('devCollect')"
++                @click="collectDevice(d.id)"
++              >
++                <v-icon small>mdi-download-network</v-icon>
++              </v-btn>
++              <v-btn icon small :title="$t('delete')" @click="deleteDevice(d.id)">
++                <v-icon small>mdi-delete-outline</v-icon>
++              </v-btn>
++            </td>
+           </tr>
+           <tr v-if="!loading && devices.length === 0">
+             <td colspan="7" class="grey--text text-center pa-4">{{ $t('devEmpty') }}</td>
+@@ -215,116 +222,52 @@
+     </v-dialog>
+ 
+     <!-- Collect switch -->
+-    <v-dialog v-model="collect.show" width="520">
++    <v-dialog v-model="add.show" width="520">
+       <v-card>
+-        <v-card-title>{{ $t('devCollectSwitch') }}</v-card-title>
++        <v-card-title>{{ $t('devAddDevice') }}</v-card-title>
+         <v-divider></v-divider>
+         <v-card-text class="pt-4">
+-          <v-alert v-if="collect.error" type="error" dense text class="mb-2">
+-            {{ collect.error }}
++          <v-alert v-if="add.error" type="error" dense text class="mb-2">
++            {{ add.error }}
+           </v-alert>
+-          <v-text-field
+-            v-model.trim="collect.form.host"
+-            label="Host / IP" outlined dense
+-          ></v-text-field>
+           <v-select
+-            v-model="collect.form.version"
+-            :items="['v2c', 'v3']" label="SNMP version" outlined dense
++            v-model="add.form.conn_type"
++            :items="connTypes" item-text="text" item-value="value"
++            :label="$t('devConnType')" outlined dense
+           ></v-select>
+           <v-text-field
+-            v-if="collect.form.version === 'v2c'"
+-            v-model.trim="collect.form.community"
+-            label="Community" placeholder="public" outlined dense
+-          ></v-text-field>
+-          <template v-else>
+-            <v-text-field
+-              v-model.trim="collect.form.user"
+-              label="v3 user" outlined dense
+-            ></v-text-field>
+-            <v-row dense>
+-              <v-col cols="6">
+-                <v-select
+-                  v-model="collect.form.auth_proto"
+-                  :items="['MD5', 'SHA']" label="Auth" outlined dense clearable
+-                ></v-select>
+-              </v-col>
+-              <v-col cols="6">
+-                <v-text-field
+-                  v-model="collect.form.auth_pass"
+-                  label="Auth pass" type="password" outlined dense
+-                ></v-text-field>
+-              </v-col>
+-            </v-row>
+-            <v-row dense>
+-              <v-col cols="6">
+-                <v-select
+-                  v-model="collect.form.priv_proto"
+-                  :items="['DES', 'AES']" label="Priv" outlined dense clearable
+-                ></v-select>
+-              </v-col>
+-              <v-col cols="6">
+-                <v-text-field
+-                  v-model="collect.form.priv_pass"
+-                  label="Priv pass" type="password" outlined dense
+-                ></v-text-field>
+-              </v-col>
+-            </v-row>
+-          </template>
+-        </v-card-text>
+-        <v-divider></v-divider>
+-        <v-card-actions>
+-          <v-btn text :disabled="collect.busy" @click="collect.show = false">
+-            {{ $t('cancel') }}
+-          </v-btn>
+-          <v-spacer></v-spacer>
+-          <v-btn
+-            color="primary"
+-            :loading="collect.busy"
+-            :disabled="!collect.form.host"
+-            @click="submitCollect"
+-          >
+-            <v-icon left small>mdi-download-network</v-icon>{{ $t('devCollect') }}
+-          </v-btn>
+-        </v-card-actions>
+-      </v-card>
+-    </v-dialog>
+-
+-    <v-dialog v-model="host.show" width="520">
+-      <v-card>
+-        <v-card-title>{{ $t('devCollectHost') }}</v-card-title>
+-        <v-divider></v-divider>
+-        <v-card-text class="pt-4">
+-          <v-alert v-if="host.error" type="error" dense text class="mb-2">
+-            {{ host.error }}
+-          </v-alert>
+-          <v-text-field
+-            v-model.trim="host.form.host"
++            v-if="add.form.conn_type !== 'local'"
++            v-model.trim="add.form.host"
+             label="Host / IP" outlined dense
+           ></v-text-field>
+           <v-autocomplete
+-            v-model="host.form.cert"
+-            :items="host.certs"
++            v-if="add.form.conn_type === 'winrs'"
++            v-model="add.form.conn_cert"
++            :items="add.certs"
+             :label="$t('winrsCertLabel')"
+             outlined dense
+           ></v-autocomplete>
++          <v-text-field
++            v-if="add.form.conn_type === 'snmp'"
++            v-model.trim="add.form.snmp_community"
++            label="SNMP community (v2c)" placeholder="public" outlined dense
++          ></v-text-field>
+           <v-checkbox
+-            v-model="host.form.auto_deploy"
++            v-if="add.form.conn_type !== 'snmp'"
++            v-model="add.form.auto_deploy"
+             :label="$t('devAutoDeploy')"
+             dense hide-details class="mt-0"
+           ></v-checkbox>
+-          <div class="caption grey--text mt-1">{{ $t('devAutoDeployHint') }}</div>
++          <div class="caption grey--text mt-1">
++            {{ add.form.conn_type === 'local' ? $t('devCollectLocalHint') : $t('devAddHint') }}
++          </div>
+         </v-card-text>
+         <v-divider></v-divider>
+         <v-card-actions>
+-          <v-btn text :disabled="host.busy" @click="host.show = false">{{ $t('cancel') }}</v-btn>
++          <v-btn text :disabled="add.busy" @click="add.show = false">{{ $t('cancel') }}</v-btn>
+           <v-spacer></v-spacer>
+-          <v-btn
+-            color="primary"
+-            :loading="host.busy"
+-            :disabled="!host.form.host || !host.form.cert"
+-            @click="submitCollectHost"
+-          >
+-            <v-icon left small>mdi-download-network</v-icon>{{ $t('devCollect') }}
++          <v-btn color="primary" :loading="add.busy" :disabled="!addValid" @click="submitAddDevice">
++            <v-icon left small>mdi-download-network</v-icon>{{ $t('devSaveCollect') }}
+           </v-btn>
+         </v-card-actions>
+       </v-card>
+@@ -344,35 +287,40 @@ export default {
+       devices: [],
+       loading: false,
+       localBusy: false,
++      rowBusy: 0,
+       error: null,
+       detail: {
+         show: false, data: null, changes: [], tab: 0,
+       },
+-      collect: {
++      add: {
+         show: false,
+         busy: false,
+         error: null,
++        certs: [],
+         form: {
+-          host: '',
+-          version: 'v2c',
+-          community: 'public',
+-          user: '',
+-          auth_proto: 'SHA',
+-          auth_pass: '',
+-          priv_proto: 'AES',
+-          priv_pass: '',
++          conn_type: 'winrs', host: '', conn_cert: null, snmp_community: 'public', auto_deploy: true,
+         },
+       },
+-      host: {
+-        show: false,
+-        busy: false,
+-        error: null,
+-        certs: [],
+-        form: { host: '', cert: null, auto_deploy: true },
+-      },
+     };
+   },
+ 
++  computed: {
++    connTypes() {
++      return [
++        { value: 'winrs', text: this.$t('devConnWinrs') },
++        { value: 'snmp', text: this.$t('devConnSnmp') },
++        { value: 'local', text: this.$t('devConnLocal') },
++      ];
++    },
++    addValid() {
++      const f = this.add.form;
++      if (f.conn_type === 'local') return true;
++      if (!f.host) return false;
++      if (f.conn_type === 'winrs') return !!f.conn_cert;
++      return true;
++    },
++  },
++
+   async created() {
+     await this.loadDevices();
+   },
+@@ -411,25 +359,6 @@ export default {
+       }
+     },
+ 
+-    openCollect() {
+-      this.collect.error = null;
+-      this.collect.show = true;
+-    },
+-
+-    async submitCollect() {
+-      this.collect.busy = true;
+-      this.collect.error = null;
+-      try {
+-        await axios.post(`${API}/collect-switch`, this.collect.form);
+-        this.collect.show = false;
+-        await this.loadDevices();
+-      } catch (err) {
+-        this.collect.error = getErrorMessage(err);
+-      } finally {
+-        this.collect.busy = false;
+-      }
+-    },
+-
+     async collectLocal() {
+       this.localBusy = true;
+       this.error = null;
+@@ -443,30 +372,62 @@ export default {
+       }
+     },
+ 
+-    async openCollectHost() {
+-      this.host.error = null;
+-      this.host.show = true;
+-      // nạp danh sách cert từ core (thư mục ./certs của project).
++    async openAddDevice() {
++      this.add.error = null;
++      this.add.show = true;
+       try {
+         const pid = this.$route.params.projectId;
+         const { data } = await axios.get(`/api/project/${pid}/winrs/certs`);
+-        this.host.certs = (data.certs || []).map((c) => c.name);
++        this.add.certs = (data.certs || []).map((c) => c.name);
+       } catch (err) {
+-        this.host.certs = [];
++        this.add.certs = [];
+       }
+     },
+ 
+-    async submitCollectHost() {
+-      this.host.busy = true;
+-      this.host.error = null;
++    // Lưu device (kèm kết nối) rồi thu ngay bằng kết nối đó.
++    async submitAddDevice() {
++      this.add.busy = true;
++      this.add.error = null;
++      const f = this.add.form;
+       try {
+-        await axios.post(`${API}/collect`, this.host.form);
+-        this.host.show = false;
++        const body = {
++          conn_type: f.conn_type,
++          host: f.conn_type === 'local' ? 'localhost' : f.host,
++          conn_cert: f.conn_cert || '',
++          snmp_version: f.conn_type === 'snmp' ? 'v2c' : '',
++          snmp_community: f.snmp_community || '',
++        };
++        const { data } = await axios.post(`${API}/device`, body);
++        await axios.post(`${API}/collect`, { id: data.id, auto_deploy: f.auto_deploy });
++        this.add.show = false;
+         await this.loadDevices();
+       } catch (err) {
+-        this.host.error = getErrorMessage(err);
++        this.add.error = getErrorMessage(err);
+       } finally {
+-        this.host.busy = false;
++        this.add.busy = false;
++      }
++    },
++
++    async collectDevice(id) {
++      this.rowBusy = id;
++      this.error = null;
++      try {
++        await axios.post(`${API}/collect`, { id, auto_deploy: true });
++        await this.loadDevices();
++      } catch (err) {
++        this.error = getErrorMessage(err);
++      } finally {
++        this.rowBusy = 0;
++      }
++    },
++
++    async deleteDevice(id) {
++      this.error = null;
++      try {
++        await axios.delete(`${API}/device`, { params: { id } });
++        await this.loadDevices();
++      } catch (err) {
++        this.error = getErrorMessage(err);
+       }
+     },
+   },
