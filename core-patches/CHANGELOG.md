@@ -3,6 +3,14 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-11 — 0041-discovery-cmdb-inventory-picker.patch
+**WHY:** CMDB là trung tâm: (A) máy discovery khi Add nên vào CMDB device; (B) editor WinRS Endpoints
+nên chọn IP từ CMDB thay vì gõ tay.
+**WHAT:** `NetworkDiscovery.vue` `addToInventory` +POST `/plugins/device-inventory/device`
+(conn_type=winrs) cho mỗi IP → máy discovery vào cả CMDB. `InventoryForm.vue` (WinRS): +autocomplete
+chọn host từ CMDB (`GET /devices`) → chèn `<ip> cert=<ip>.pem` vào inventory. +i18n `winrsPickFromCmdb`.
+Verify E2E: Add discovery → device vào CMDB; picker chèn dòng. chain 0001-0041 build.
+
 ## 2026-07-11 — 0040-host-system-facts-ui.patch
 **WHY:** Host thu thêm facts (network/route/dns/domain/ntp/user/group/profile/env) — cần hiển thị UI.
 **WHAT:** `DeviceInventory.vue`: +tab "Hệ thống" ở detail host, hiện facts nhóm theo category

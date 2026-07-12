@@ -1,0 +1,111 @@
+# PATCH: 0041-discovery-cmdb-inventory-picker
+# WHY: CMDB la trung tam: (A) may discovery khi Add nen vao CMDB device; (B) editor WinRS Endpoints
+#      nen chon IP tu CMDB thay vi go tay.
+# WHAT: NetworkDiscovery.vue addToInventory +POST /plugins/device-inventory/device (conn_type=winrs).
+#       InventoryForm.vue (WinRS) +autocomplete chon host tu CMDB -> chen "<ip> cert=<ip>.pem". +i18n.
+# SPEC: docs/L2-specs/core-patches/0041-discovery-cmdb-inventory-picker.md
+# BASELINE: v2.18.16
+#
+diff --git a/web/src/components/InventoryForm.vue b/web/src/components/InventoryForm.vue
+index 5811f5c..e355bde 100644
+--- a/web/src/components/InventoryForm.vue
++++ b/web/src/components/InventoryForm.vue
+@@ -144,6 +144,16 @@
+     </div>
+ 
+     <div v-if="item.type === 'winrs'">
++      <v-autocomplete
++        :items="cmdbHosts"
++        item-text="host"
++        item-value="host"
++        :label="$t('winrsPickFromCmdb')"
++        :no-data-text="$t('winrsCmdbEmpty')"
++        prepend-inner-icon="mdi-devices"
++        outlined dense clearable
++        @change="addHostFromCmdb"
++      ></v-autocomplete>
+       <codemirror
+         class="InventoryEditor InventoryEditor--static"
+         :style="{ border: '1px solid lightgray' }"
+@@ -181,6 +191,7 @@ win-app.lab:5986 cert=app.pem key=app.key"
+ <script>
+ /* eslint-disable import/no-extraneous-dependencies,import/extensions */
+ 
++import axios from 'axios';
+ import ItemFormBase from '@/components/ItemFormBase';
+ 
+ import { codemirror } from 'vue-codemirror';
+@@ -204,6 +215,7 @@ export default {
+ 
+   data() {
+     return {
++      cmdbHosts: [],
+       winrsCmOptions: {
+         tabSize: 2,
+         mode: 'text/plain',
+@@ -268,9 +280,24 @@ export default {
+       this.loadProjectResources('repositories'),
+       this.loadProjectResources('runner_tags'),
+     ]);
++    try {
++      const { data } = await axios.get('/api/plugins/device-inventory/devices');
++      this.cmdbHosts = (data.devices || []).filter((d) => d.kind !== 'switch');
++    } catch (e) {
++      this.cmdbHosts = [];
++    }
+   },
+ 
+   methods: {
++    // Chọn 1 host từ CMDB -> chèn dòng "<ip> cert=<ip>.pem" vào inventory (không nhập tay).
++    addHostFromCmdb(host) {
++      if (!host) return;
++      const line = `${host} cert=${host}.pem`;
++      const cur = (this.item.inventory || '').trim();
++      if (cur.split('\n').some((l) => l.trim().split(/\s+/)[0] === host)) return;
++      this.item.inventory = cur ? `${cur}\n${line}` : line;
++    },
++
+     getNewItem() {
+       return { type: this.app === 'winrs' ? 'winrs' : 'static' };
+     },
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index 9f7b47a..ed5bf98 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -141,6 +141,8 @@ export default {
+   loading: 'Loading…',
+   winrsHostHint: 'Run pwsh directly on the Windows host via WinRM (certificate). Place the cert in '
+     + 'the runner\'s {certsDir} folder (or set {envVar}).',
++  winrsPickFromCmdb: 'Add a host from Devices (CMDB)',
++  winrsCmdbEmpty: 'No hosts in CMDB yet — collect or discover some first.',
+   winrsDownloadScript: 'Download the Windows setup script',
+   winrsDownloadScriptTail: 'run it AS ADMIN on the target machine to create the certificate.',
+   localRepoLabel: 'Local repository (Gitea) of this project:',
+diff --git a/web/src/lang/vi.js b/web/src/lang/vi.js
+index 478b860..a8ca18e 100644
+--- a/web/src/lang/vi.js
++++ b/web/src/lang/vi.js
+@@ -160,6 +160,8 @@ export default {
+   loading: 'Đang tải…',
+   winrsHostHint: 'Chạy pwsh trực tiếp trên máy Windows qua WinRM (chứng chỉ). Đặt cert vào '
+     + 'thư mục {certsDir} của runner (hoặc đặt biến {envVar}).',
++  winrsPickFromCmdb: 'Thêm host từ Thiết bị (CMDB)',
++  winrsCmdbEmpty: 'CMDB chưa có host — thu thập hoặc quét mạng trước.',
+   winrsDownloadScript: 'Tải script cài đặt cho Windows',
+   winrsDownloadScriptTail: 'chạy nó VỚI QUYỀN ADMIN trên máy đích để tạo chứng chỉ.',
+   localRepoLabel: 'Repository nội bộ (Gitea) của project này:',
+diff --git a/web/src/views/project/NetworkDiscovery.vue b/web/src/views/project/NetworkDiscovery.vue
+index 5c9616c..6413eee 100644
+--- a/web/src/views/project/NetworkDiscovery.vue
++++ b/web/src/views/project/NetworkDiscovery.vue
+@@ -261,6 +261,10 @@ export default {
+       this.adding = true;
+       try {
+         await axios.post(`/api/project/${this.projectId}/discovery/add-to-inventory`, { ips });
++        // Thêm vào CMDB device (hub trung tâm) — conn_type=winrs, cert đặt sau khi enroll.
++        await Promise.all(ips.map((ip) => axios.post('/api/plugins/device-inventory/device', {
++          host: ip, conn_type: 'winrs', conn_cert: '', snmp_version: '', snmp_community: '',
++        }).catch(() => {})));
+         // đánh dấu managed trong bảng ngay
+         ips.forEach((ip) => {
+           const d = this.devices.find((x) => x.ip === ip);
