@@ -52,7 +52,7 @@ func TestMetadataMatchesManifest(t *testing.T) {
 		t.Fatalf("name/version sai: %s %s", md.Name, md.Version)
 	}
 	want := map[string]bool{"devices": true, "device": true, "changes": true,
-		"collect": true, "collect-switch": true, "export": true}
+		"collect": true, "collect-switch": true, "config": true, "export": true}
 	seen := map[string]bool{}
 	for _, r := range md.Routes {
 		seen[r.Path] = true

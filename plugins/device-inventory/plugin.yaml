@@ -33,6 +33,13 @@ routes:
     description: Collect a network switch via SNMP (v2c/v3)
     require_admin: true
   - method: GET
+    path: config
+    description: Get auto-collect scheduler config
+  - method: POST
+    path: config
+    description: Set auto-collect scheduler config
+    require_admin: true
+  - method: GET
     path: export
     description: Export the whole fleet inventory (csv|json)
 permissions:

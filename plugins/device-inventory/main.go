@@ -43,6 +43,8 @@ func (p *plugin) Metadata(_ context.Context) (*pluginv1.Metadata, error) {
 			{Method: "GET", Path: "changes", Description: "Change history for a device by id"},
 			{Method: "POST", Path: "collect", Description: "Collect inventory from a host via osquery over WinRS", RequireAdmin: true},
 			{Method: "POST", Path: "collect-switch", Description: "Collect a network switch via SNMP (v2c/v3)", RequireAdmin: true},
+			{Method: "GET", Path: "config", Description: "Get auto-collect scheduler config"},
+			{Method: "POST", Path: "config", Description: "Set auto-collect scheduler config", RequireAdmin: true},
 			{Method: "GET", Path: "export", Description: "Export the whole fleet inventory (csv|json)"},
 		},
 		Permissions: []string{"certs:read", "network:outbound", "inventory:read"},
@@ -71,6 +73,11 @@ func (p *plugin) HandleRequest(ctx context.Context, req *pluginv1.HttpRequest) (
 		return p.handleCollect(ctx, req)
 	case "collect-switch":
 		return p.handleCollectSwitch(req)
+	case "config":
+		if req.GetMethod() == "POST" {
+			return p.handleSetConfig(req)
+		}
+		return p.handleGetConfig()
 	case "export":
 		return p.handleExport(req)
 	default:
@@ -163,5 +170,7 @@ func main() {
 		sdk.Serve(&plugin{db: nil, certs: certs})
 		return
 	}
-	sdk.Serve(&plugin{db: db, certs: certs})
+	pl := &plugin{db: db, certs: certs}
+	go pl.runScheduler() // thu định kỳ tự động (nếu bật trong config)
+	sdk.Serve(pl)
 }

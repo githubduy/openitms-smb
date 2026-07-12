@@ -27,54 +27,11 @@ func (p *plugin) collectByID(id int64, autoDeploy bool) (*pluginv1.HttpResponse,
 	if err != nil {
 		return jsonResp(404, map[string]string{"error": "không có device"}), nil
 	}
-	switch c.ConnType {
-	case "local":
-		inv, e := collectHostLocal(autoDeploy, os.Getenv("QUICKWIN_OSQUERY_MSI"), 300)
-		if e != nil {
-			return jsonResp(502, map[string]string{"error": e.Error()}), nil
-		}
-		inv.Host = c.Host
-		did, e := storeHost(p.db, inv)
-		if e != nil {
-			return jsonResp(500, map[string]string{"error": e.Error()}), nil
-		}
-		return jsonResp(200, map[string]any{"ok": true, "device_id": did, "kind": "host"}), nil
-	case "winrs":
-		certPEM, keyPEM, e := p.resolveCert(c.ConnCert, "")
-		if e != nil {
-			return jsonResp(400, map[string]string{"error": e.Error()}), nil
-		}
-		port := c.ConnPort
-		if port == 0 {
-			port = 5986
-		}
-		inv, e := collectHost(HostCollectConfig{
-			Host: c.Host, Port: port, CertPEM: certPEM, KeyPEM: keyPEM, Timeout: 300,
-			AutoDeploy: autoDeploy, MSIURL: os.Getenv("QUICKWIN_OSQUERY_MSI"),
-		})
-		if e != nil {
-			return jsonResp(502, map[string]string{"error": e.Error()}), nil
-		}
-		did, e := storeHost(p.db, inv)
-		if e != nil {
-			return jsonResp(500, map[string]string{"error": e.Error()}), nil
-		}
-		return jsonResp(200, map[string]any{"ok": true, "device_id": did, "kind": "host"}), nil
-	case "snmp":
-		inv, e := collectSwitch(SNMPConfig{
-			Host: c.Host, Port: uint16(c.ConnPort), Version: c.SNMPVersion, Community: c.SNMPCommunity,
-		})
-		if e != nil {
-			return jsonResp(502, map[string]string{"error": e.Error()}), nil
-		}
-		did, e := storeSwitch(p.db, inv)
-		if e != nil {
-			return jsonResp(500, map[string]string{"error": e.Error()}), nil
-		}
-		return jsonResp(200, map[string]any{"ok": true, "device_id": did, "kind": "switch"}), nil
-	default:
-		return jsonResp(400, map[string]string{"error": "device chưa có thông tin kết nối (conn_type). Sửa device để thêm."}), nil
+	kind, e := p.doCollect(c, autoDeploy)
+	if e != nil {
+		return jsonResp(502, map[string]string{"error": e.Error()}), nil
 	}
+	return jsonResp(200, map[string]any{"ok": true, "id": id, "kind": kind}), nil
 }
 
 // handleCollect thu 1 host qua osquery/WinRS rồi lưu CMDB.

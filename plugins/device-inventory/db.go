@@ -163,6 +163,10 @@ func migrate(db *sql.DB) error {
 			INDEX (device_id),
 			FOREIGN KEY (device_id) REFERENCES di_device(id) ON DELETE CASCADE
 		) ENGINE=InnoDB`,
+		`CREATE TABLE IF NOT EXISTS di_config (
+			k VARCHAR(64) PRIMARY KEY,
+			v VARCHAR(255)
+		) ENGINE=InnoDB`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
