@@ -34,7 +34,8 @@ func buildOsqueryPS(autoDeploy bool, msiURL string) string {
 `
 	}
 	return `$ErrorActionPreference='SilentlyContinue'
-$oq=(Get-Command osqueryi.exe -EA SilentlyContinue).Source
+$oq=$env:QUICKWIN_OSQUERY_BIN; if($oq -and -not (Test-Path $oq)){$oq=$null}
+if(-not $oq){$oq=(Get-Command osqueryi.exe -EA SilentlyContinue).Source}
 if(-not $oq){foreach($p in @('C:\Program Files\osquery\osqueryi.exe','C:\ProgramData\osquery\osqueryi.exe')){if(Test-Path $p){$oq=$p;break}}}
 ` + deploy + `if(-not $oq){Write-Output '@@ERROR osqueryi not found';exit}
 function Q($s){& $oq --json $s}
