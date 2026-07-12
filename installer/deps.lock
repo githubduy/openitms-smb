@@ -12,3 +12,5 @@ gitea|https://dl.gitea.com/gitea/1.26.4/gitea-1.26.4-linux-amd64|0faa36d151918f8
 # --- Windows bundle deps (package-windows.sh dùng; CI tải + verify sha) ---
 mariadb-win|https://archive.mariadb.org/mariadb-11.4.4/winx64-packages/mariadb-11.4.4-winx64.zip|ee15985d5d0f604fce817986a2749bb972e79e6f8647ae0e09d821a2fdcd6373|mariadb-win
 gitea-win|https://dl.gitea.com/gitea/1.26.4/gitea-1.26.4-windows-4.0-amd64.exe|7ce663c56143843f17b297f103d55c29913eb682998b91fec1e57d0921110917|gitea-win
+# osquery (Apache-2.0, MSI). Installer Windows extract osqueryi.exe (msiexec /a) -> inventory offline.
+osquery-win|https://pkg.osquery.io/windows/osquery-5.12.1.msi|e9b0acfee492bd375714dc3d92d477272623b301b31a459fcc989cc6aa7dd0c0|osquery-win

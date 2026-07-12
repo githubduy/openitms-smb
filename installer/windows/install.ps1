@@ -183,6 +183,22 @@ LEVEL = Info
   Write-Host "==> [6/8] Gitea: khong co binary - bo qua (auto-repo se tat)" -ForegroundColor DarkGray
 }
 
+# ------------------------------------------------------------------ osquery (bundled, offline)
+# osquery MSI di kem (vendor\osquery.msi) -> extract osqueryi.exe (msiexec /a, khong cai he thong)
+# -> plugin device-inventory thu inventory KHONG can internet.
+$OsqueryBin = ""
+$OsqMsi = Join-Path $Prefix "vendor\osquery.msi"
+if (Test-Path $OsqMsi) {
+  Write-Host "==> osquery (bundled, offline inventory)" -ForegroundColor Cyan
+  $osqDir = Join-Path $Prefix "osquery"
+  New-Item -ItemType Directory -Force $osqDir | Out-Null
+  $cand = Join-Path $osqDir "osquery\osqueryi.exe"
+  if (-not (Test-Path $cand)) {
+    Start-Process msiexec -ArgumentList '/a', "`"$OsqMsi`"", '/qn', "TARGETDIR=`"$osqDir`"" -Wait
+  }
+  if (Test-Path $cand) { $OsqueryBin = $cand }
+}
+
 Write-Host "==> [7/8] Wrapper start.cmd (env cho app + Gitea)" -ForegroundColor Cyan
 $startCmd = Join-Path $cfgDir "start.cmd"
 # Neu Gitea idempotent (khong sinh token moi) va da co start.cmd cu -> giu token cu.
@@ -198,6 +214,9 @@ $lines = @(
   "set QUICKWIN_PLUGINS_DIR=$Prefix\plugins",
   'set NO_PROXY=127.0.0.1,localhost'
 )
+if ($OsqueryBin) {
+  $lines += "set QUICKWIN_OSQUERY_BIN=$OsqueryBin"
+}
 if ($GiteaAddr -and $GiteaToken) {
   $lines += "set QUICKWIN_GITEA_ADDR=$GiteaAddr"
   $lines += "set QUICKWIN_GITEA_ORG=$GiteaOrg"

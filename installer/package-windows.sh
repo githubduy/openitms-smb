@@ -60,6 +60,11 @@ GITEA_WIN="$(ls "$ROOT"/dist/deps/gitea-win/* 2>/dev/null | head -1)"
 if [ -n "$GITEA_WIN" ]; then mkdir -p "$STAGE/gitea"; cp "$GITEA_WIN" "$STAGE/gitea/gitea.exe"; echo "    Gitea Windows: bundled"
 else echo "    Gitea Windows chưa fetch — bundle không có git server local"; fi
 
+# osquery Windows: MSI → vendor/osquery.msi (install.ps1 extract osqueryi.exe, inventory offline)
+OSQ_WIN="$(ls "$ROOT"/dist/deps/osquery-win/* 2>/dev/null | head -1)"
+if [ -n "$OSQ_WIN" ]; then mkdir -p "$STAGE/vendor"; cp "$OSQ_WIN" "$STAGE/vendor/osquery.msi"; echo "    osquery Windows: bundled"
+else echo "    osquery Windows chưa fetch — inventory host cần osquery cài sẵn / internet"; fi
+
 echo "==> zip + checksum"
 ZIP="$ROOT/dist/openitms-smb-$VER-windows-amd64.zip"
 rm -f "$ZIP"
