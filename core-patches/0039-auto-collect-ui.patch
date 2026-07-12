@@ -1,0 +1,110 @@
+# PATCH: 0039-auto-collect-ui
+# WHY: User muon thu dinh ky tu dong khong nhap creds lai. Ket noi da luu trong di_device (0038) ->
+#      chi can UI bat/tat scheduler + chu ky.
+# WHAT: DeviceInventory.vue +switch "Tu dong thu" + o interval -> GET/POST /plugins/device-inventory/
+#       config. +i18n devAutoCollect*/devInterval. (Scheduler backend da commit rieng o plugin.)
+# SPEC: docs/L2-specs/core-patches/0039-auto-collect-ui.md
+# BASELINE: v2.18.16
+#
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index ed495d4..e4eece7 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -37,6 +37,9 @@ export default {
+   devCollectLocal: 'Collect this server (local)',
+   devCollectLocalHint: 'Inventory the OpenITMS server itself, directly (no WinRS) — osquery runs '
+     + 'locally on the server.',
++  devAutoCollect: 'Auto-collect on a schedule',
++  devInterval: 'Every (min)',
++  devAutoCollectHint: 'Periodically re-collect every device using its saved connection (no re-entry).',
+   devAddDevice: 'Add device',
+   devSaveCollect: 'Save & collect',
+   devConnType: 'Connection',
+diff --git a/web/src/lang/vi.js b/web/src/lang/vi.js
+index 2c671b1..2c16b50 100644
+--- a/web/src/lang/vi.js
++++ b/web/src/lang/vi.js
+@@ -35,6 +35,9 @@ export default {
+   devCollectSwitch: 'Thu switch (SNMP)',
+   devCollectHost: 'Thu máy chủ (osquery)',
+   devCollectLocal: 'Thu server này (local)',
++  devAutoCollect: 'Tự động thu theo lịch',
++  devInterval: 'Mỗi (phút)',
++  devAutoCollectHint: 'Định kỳ thu lại mọi thiết bị bằng kết nối đã lưu (không nhập lại).',
+   devAddDevice: 'Thêm thiết bị',
+   devSaveCollect: 'Lưu & thu',
+   devConnType: 'Kết nối',
+diff --git a/web/src/views/project/DeviceInventory.vue b/web/src/views/project/DeviceInventory.vue
+index 0d1338d..b3d0372 100644
+--- a/web/src/views/project/DeviceInventory.vue
++++ b/web/src/views/project/DeviceInventory.vue
+@@ -27,6 +27,26 @@
+       <v-alert type="info" dense text class="mb-3">{{ $t('devicesHint') }}</v-alert>
+       <v-alert v-if="error" type="error" dense text class="mb-3">{{ error }}</v-alert>
+ 
++      <div class="d-flex align-center mb-2">
++        <v-switch
++          v-model="sched.enabled"
++          @change="saveSched"
++          :label="$t('devAutoCollect')"
++          dense hide-details class="mt-0 pt-0"
++        ></v-switch>
++        <v-text-field
++          v-if="sched.enabled"
++          v-model.number="sched.interval_min"
++          @change="saveSched"
++          type="number"
++          :label="$t('devInterval')"
++          style="max-width: 160px;"
++          dense outlined hide-details
++          class="ml-4"
++        ></v-text-field>
++        <span class="caption grey--text ml-4">{{ $t('devAutoCollectHint') }}</span>
++      </div>
++
+       <v-simple-table>
+         <thead>
+           <tr>
+@@ -289,6 +309,7 @@ export default {
+       localBusy: false,
+       rowBusy: 0,
+       error: null,
++      sched: { enabled: false, interval_min: 240 },
+       detail: {
+         show: false, data: null, changes: [], tab: 0,
+       },
+@@ -323,6 +344,7 @@ export default {
+ 
+   async created() {
+     await this.loadDevices();
++    await this.loadSched();
+   },
+ 
+   methods: {
+@@ -330,6 +352,26 @@ export default {
+       EventBus.$emit('i-show-drawer');
+     },
+ 
++    async loadSched() {
++      try {
++        const { data } = await axios.get(`${API}/config`);
++        this.sched = { enabled: !!data.enabled, interval_min: data.interval_min || 240 };
++      } catch (err) {
++        // giữ mặc định
++      }
++    },
++
++    async saveSched() {
++      try {
++        await axios.post(`${API}/config`, {
++          enabled: this.sched.enabled,
++          interval_min: Number(this.sched.interval_min) || 240,
++        });
++      } catch (err) {
++        this.error = getErrorMessage(err);
++      }
++    },
++
+     async loadDevices() {
+       this.loading = true;
+       this.error = null;

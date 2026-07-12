@@ -3,6 +3,14 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-11 — 0039-auto-collect-ui.patch
+**WHY:** Thu định kỳ tự động không nhập creds lại. Kết nối đã lưu trong di_device (0038) → UI chỉ cần
+bật/tắt scheduler + chu kỳ.
+**WHAT:** `DeviceInventory.vue` +switch "Tự động thu" + ô interval → GET/POST `/plugins/device-inventory/
+config`. +i18n `devAutoCollect*`/`devInterval`. Scheduler backend (plugin, commit riêng): di_config +
+GET/POST /config + goroutine `runScheduler` (mỗi phút, tới hạn → thu mọi device có conn_type qua
+`doCollect`). Verify E2E: GET/POST config lưu (enabled+interval); scheduler goroutine chạy. Spec 0039.
+
 ## 2026-07-11 — 0038-unify-device-model.patch
 **WHY:** User muốn gộp Inventory + CMDB thành 1 model quản lý: device = identity + kết nối + tài sản.
 Menu Inventory native và Thiết bị (CMDB) dễ nhầm.

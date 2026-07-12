@@ -36,3 +36,4 @@
 0036-device-collect-host-ui.patch
 0037-local-self-collect.patch
 0038-unify-device-model.patch
+0039-auto-collect-ui.patch
