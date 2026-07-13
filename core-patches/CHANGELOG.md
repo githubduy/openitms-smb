@@ -3,6 +3,15 @@
 Mỗi patch thêm/sửa/xóa phải có 1 entry ở đây (mới nhất lên đầu).
 Format: `## <ngày> — <patch-file>` + WHY (vì sao cần) + WHAT (đổi gì, mức cao).
 
+## 2026-07-11 — 0042-enroll-custom-account.patch
+**WHY:** Enroll Windows luôn tạo account mới 'openitms'. Khách muốn dùng **account customer có sẵn** —
+cần nhập account trên UI + regen script enroll theo account đó.
+**WHAT:** `winrs-enroll.ps1` +`$CreateUser` (inject `@@ENROLL_USER@@`/`@@ENROLL_CREATE@@`): create=0 →
+dùng account có sẵn (không tạo/đổi mật khẩu, Fail nếu chưa tồn tại). `GetEnrollScript` đọc
+`?user=&create=`; `enrollScriptInject` +user/create. `WinRSConsole.vue` +ô nhập account + checkbox
+"dùng account có sẵn" → wire vào download href + 1-click. +i18n `enrollAccount*`. Verify E2E: download
+`?user=acme_admin&create=0` → script `$__InjUser="acme_admin"` `$__InjCreate="0"`. Spec 0042.
+
 ## 2026-07-11 — 0041-discovery-cmdb-inventory-picker.patch
 **WHY:** CMDB là trung tâm: (A) máy discovery khi Add nên vào CMDB device; (B) editor WinRS Endpoints
 nên chọn IP từ CMDB thay vì gõ tay.

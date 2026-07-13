@@ -1,0 +1,233 @@
+# PATCH: 0042-enroll-custom-account
+# WHY: Enroll Windows dang luon tao account moi 'openitms'. Khach muon dung ACCOUNT CUSTOMER co san
+#      -> can nhap account tren UI + regen script enroll theo account do.
+# WHAT: winrs-enroll.ps1 +$CreateUser (inject @@ENROLL_USER@@/@@ENROLL_CREATE@@); create=0 -> dung
+#       account co san (khong tao/doi mat khau, fail neu chua ton tai). GetEnrollScript doc ?user=&create=.
+#       WinRSConsole.vue +o nhap account + checkbox "dung account co san" -> wire download + 1-click. +i18n.
+# SPEC: docs/L2-specs/core-patches/0042-enroll-custom-account.md
+# BASELINE: v2.18.16
+#
+diff --git a/api/projects/quickwin_enroll.go b/api/projects/quickwin_enroll.go
+index c6f6908..f05a226 100644
+--- a/api/projects/quickwin_enroll.go
++++ b/api/projects/quickwin_enroll.go
+@@ -8,6 +8,7 @@ package projects
+ import (
+ 	_ "embed"
+ 	"net/http"
++	"strings"
+ 
+ 	"github.com/gorilla/mux"
+ )
+@@ -36,7 +37,16 @@ func GetEnrollScript(w http.ResponseWriter, r *http.Request) {
+ 	// 1-click enrollment (PATCH 0016): nếu có ?server=&token= thì chèn vào script để tự upload cert.
+ 	server := r.URL.Query().Get("server")
+ 	token := r.URL.Query().Get("token")
+-	content = enrollScriptInject(content, server, token)
++	// PATCH 0042 — account custom: ?user=<name>&create=<0|1>. Mặc định openitms + tạo mới.
++	user := strings.TrimSpace(r.URL.Query().Get("user"))
++	if user == "" {
++		user = "openitms"
++	}
++	create := "1"
++	if r.URL.Query().Get("create") == "0" {
++		create = "0"
++	}
++	content = enrollScriptInject(content, server, token, user, create)
+ 
+ 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+ 	w.Header().Set("Content-Disposition", "attachment; filename="+filename)
+diff --git a/api/projects/quickwin_enroll_token.go b/api/projects/quickwin_enroll_token.go
+index 1189213..0b8a30e 100644
+--- a/api/projects/quickwin_enroll_token.go
++++ b/api/projects/quickwin_enroll_token.go
+@@ -28,6 +28,8 @@ const maxCertBytes = 64 * 1024
+ // Placeholder trong script enroll để 0014 handler chèn server URL + token khi tải 1-click.
+ const enrollServerPlaceholder = "@@OPENITMS_SERVER@@"
+ const enrollTokenPlaceholder = "@@ENROLL_TOKEN@@"
++const enrollUserPlaceholder = "@@ENROLL_USER@@"     // account map cert (0042)
++const enrollCreatePlaceholder = "@@ENROLL_CREATE@@" // "1"=tạo account, "0"=dùng account có sẵn
+ 
+ func enrollHMACKey() ([]byte, error) {
+ 	if util.Config == nil || util.Config.CookieHash == "" {
+@@ -207,9 +209,11 @@ func hasHostLine(inventory, host string) bool {
+ 	return false
+ }
+ 
+-// enrollScriptInject thay placeholder server/token vào script tải về (dùng bởi 0014 handler).
+-func enrollScriptInject(content, server, token string) string {
++// enrollScriptInject thay placeholder server/token/user/create vào script tải về (0014/0016/0042).
++func enrollScriptInject(content, server, token, user, create string) string {
+ 	content = strings.ReplaceAll(content, enrollServerPlaceholder, server)
+ 	content = strings.ReplaceAll(content, enrollTokenPlaceholder, token)
++	content = strings.ReplaceAll(content, enrollUserPlaceholder, user)
++	content = strings.ReplaceAll(content, enrollCreatePlaceholder, create)
+ 	return content
+ }
+diff --git a/api/projects/scripts/winrs-enroll.ps1 b/api/projects/scripts/winrs-enroll.ps1
+index 553c810..5ca6b8d 100644
+--- a/api/projects/scripts/winrs-enroll.ps1
++++ b/api/projects/scripts/winrs-enroll.ps1
+@@ -51,6 +51,13 @@ $ErrorActionPreference = "Stop"
+ $OpenITMSServer = "@@OPENITMS_SERVER@@"
+ $EnrollToken    = "@@ENROLL_TOKEN@@"
+ 
++# Account injected by OpenITMS (1-click / custom-account regen). Plain download keeps placeholders.
++$__InjUser   = "@@ENROLL_USER@@"
++$__InjCreate = "@@ENROLL_CREATE@@"
++if ($__InjUser -notmatch '^@@') { $User = $__InjUser }
++$CreateUser = $true
++if ($__InjCreate -eq '0') { $CreateUser = $false }   # dùng account khách có sẵn, không tạo/đổi mật khẩu
++
+ function Fail($msg) { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
+ 
+ # 0. Require Administrator
+@@ -60,20 +67,28 @@ if (-not (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
+   Fail "Please open PowerShell as 'Run as Administrator' and try again."
+ }
+ 
+-if ([string]::IsNullOrWhiteSpace($Password)) {
+-  # Generate a strong random password (account is only used internally for cert-auth)
+-  $bytes = New-Object 'System.Byte[]' 18
+-  [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+-  $Password = ([Convert]::ToBase64String($bytes) -replace '[^A-Za-z0-9]','') + "Aa1!"
+-}
+-$secure = ConvertTo-SecureString $Password -AsPlainText -Force
+-
+-Write-Host "==> 1/5  Create local account '$User'" -ForegroundColor Cyan
+-if (Get-LocalUser -Name $User -ErrorAction SilentlyContinue) {
+-  Set-LocalUser -Name $User -Password $secure
++if ($CreateUser) {
++  if ([string]::IsNullOrWhiteSpace($Password)) {
++    # Generate a strong random password (account is only used internally for cert-auth)
++    $bytes = New-Object 'System.Byte[]' 18
++    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
++    $Password = ([Convert]::ToBase64String($bytes) -replace '[^A-Za-z0-9]','') + "Aa1!"
++  }
++  $secure = ConvertTo-SecureString $Password -AsPlainText -Force
++
++  Write-Host "==> 1/5  Create local account '$User'" -ForegroundColor Cyan
++  if (Get-LocalUser -Name $User -ErrorAction SilentlyContinue) {
++    Set-LocalUser -Name $User -Password $secure
++  } else {
++    New-LocalUser -Name $User -Password $secure -FullName "OpenITMS Agent" `
++      -Description "OpenITMS remote management" -PasswordNeverExpires | Out-Null
++  }
+ } else {
+-  New-LocalUser -Name $User -Password $secure -FullName "OpenITMS Agent" `
+-    -Description "OpenITMS remote management" -PasswordNeverExpires | Out-Null
++  # Custom account: dùng account khách đã có, KHÔNG tạo mới / KHÔNG đổi mật khẩu.
++  Write-Host "==> 1/5  Use existing account '$User'" -ForegroundColor Cyan
++  if (-not (Get-LocalUser -Name $User -ErrorAction SilentlyContinue)) {
++    Fail "Account '$User' khong ton tai tren may nay. Tao account do truoc, hoac chon 'tao account moi'."
++  }
+ }
+ # Add to local Administrators. Add-LocalGroupMember can mis-resolve the name to the domain on
+ # domain-joined machines (silently fails) -> use net localgroup (reliable for local accounts),
+diff --git a/web/src/lang/en.js b/web/src/lang/en.js
+index ed5bf98..677a481 100644
+--- a/web/src/lang/en.js
++++ b/web/src/lang/en.js
+@@ -153,6 +153,11 @@ export default {
+     + 'inventory automatically. No manual copying.',
+   enrollGenerating: 'Generating…',
+   enrollError: 'Could not generate the enrollment script',
++  enrollAccountLabel: 'Windows account for OpenITMS',
++  enrollUseExisting: 'Use existing account',
++  enrollAccountHint: 'The Windows account the cert maps to. Default "openitms" is created on the '
++    + 'target. Tick "Use existing account" to reuse a customer account you already have (it must '
++    + 'exist; its password is not changed). The download / 1-click script is regenerated for this account.',
+   enrollManualNote: 'Or download the plain scripts (manual: copy the certificate yourself):',
+ 
+   checkInterval: 'checkInterval',
+diff --git a/web/src/lang/vi.js b/web/src/lang/vi.js
+index a8ca18e..d9fca80 100644
+--- a/web/src/lang/vi.js
++++ b/web/src/lang/vi.js
+@@ -172,6 +172,11 @@ export default {
+     + 'inventory của bạn. Không cần sao chép thủ công.',
+   enrollGenerating: 'Đang tạo…',
+   enrollError: 'Không thể tạo script đăng ký',
++  enrollAccountLabel: 'Account Windows cho OpenITMS',
++  enrollUseExisting: 'Dùng account có sẵn',
++  enrollAccountHint: 'Account Windows mà chứng chỉ ánh xạ tới. Mặc định "openitms" sẽ được tạo trên '
++    + 'máy đích. Tick "Dùng account có sẵn" để dùng account khách bạn đã có (phải tồn tại; không đổi '
++    + 'mật khẩu). Script tải về / 1-click sẽ được regen theo account này.',
+   enrollManualNote: 'Hoặc tải các script thường (thủ công: bạn tự sao chép chứng chỉ):',
+ 
+   checkInterval: 'checkInterval',
+diff --git a/web/src/views/project/WinRSConsole.vue b/web/src/views/project/WinRSConsole.vue
+index d9980c3..34a4858 100644
+--- a/web/src/views/project/WinRSConsole.vue
++++ b/web/src/views/project/WinRSConsole.vue
+@@ -65,13 +65,32 @@
+               </div>
+             </v-alert>
+ 
++            <v-row dense class="mb-0">
++              <v-col cols="12" sm="7">
++                <v-text-field
++                  v-model.trim="enrollUser"
++                  :label="$t('enrollAccountLabel')"
++                  placeholder="openitms"
++                  outlined dense hide-details
++                ></v-text-field>
++              </v-col>
++              <v-col cols="12" sm="5" class="d-flex align-center">
++                <v-checkbox
++                  v-model="enrollUseExisting"
++                  :label="$t('enrollUseExisting')"
++                  dense hide-details class="mt-0 pt-0"
++                ></v-checkbox>
++              </v-col>
++            </v-row>
++            <div class="caption grey--text mb-2">{{ $t('enrollAccountHint') }}</div>
++
+             <p class="caption mb-2">{{ $t('enrollManualNote') }}</p>
+             <v-btn
+               small
+               outlined
+               color="primary"
+               class="mr-3 mb-2"
+-              :href="`/api/project/${projectId}/endpoint/enroll-script/winrs`"
++              :href="winrsScriptUrl"
+               download
+             >
+               <v-icon left small>mdi-microsoft-windows</v-icon>
+@@ -255,6 +274,8 @@ export default {
+       certsLoaded: false,
+       running: false,
+       enrolling: false,
++      enrollUser: 'openitms',
++      enrollUseExisting: false,
+       stdout: '',
+       stderr: '',
+       lastExit: null,
+@@ -269,6 +290,17 @@ export default {
+     };
+   },
+ 
++  computed: {
++    enrollAccountQuery() {
++      const u = (this.enrollUser || 'openitms').trim() || 'openitms';
++      const create = this.enrollUseExisting ? '0' : '1';
++      return `user=${encodeURIComponent(u)}&create=${create}`;
++    },
++    winrsScriptUrl() {
++      return `/api/project/${this.projectId}/endpoint/enroll-script/winrs?${this.enrollAccountQuery}`;
++    },
++  },
++
+   async created() {
+     this.restoreLastRun();
+     await Promise.all([this.loadCerts(), this.loadHistory()]);
+@@ -328,7 +360,8 @@ export default {
+         const { data } = await axios.get(`/api/project/${this.projectId}/winrs/enroll-token`);
+         const server = window.location.origin;
+         const url = `/api/project/${this.projectId}/endpoint/enroll-script/winrs`
+-          + `?token=${encodeURIComponent(data.token)}&server=${encodeURIComponent(server)}`;
++          + `?token=${encodeURIComponent(data.token)}&server=${encodeURIComponent(server)}`
++          + `&${this.enrollAccountQuery}`;
+         const a = document.createElement('a');
+         a.href = url;
+         a.download = 'openitms-winrs-enroll.ps1';
